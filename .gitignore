@@ -1,0 +1,29 @@
+# Gradle
+.gradle/
+build/
+**/build/
+
+# Android Studio / IntelliJ IDEA
+.idea/
+*.iml
+local.properties
+
+# Kotlin
+.kotlin/
+
+# Go (toolchain, module cache, gomobile work)
+.go/
+
+# Isolated patched Go toolchain (netlinkrib experiment). Never commit binaries.
+go-patched/
+
+# OS
+.DS_Store
+
+# Local environment and secrets (never commit)
+.env
+.ssh/
+.vault_pass/
+
+# Device log captures (may contain private IPs/hostnames)
+crash.txt

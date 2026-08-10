@@ -1,0 +1,53 @@
+services:
+  opencode:
+    build:
+      context: .
+      dockerfile: Dockerfile
+
+    image: homelab-app:local
+    container_name: homelab-app
+
+    stdin_open: true
+    tty: true
+
+    working_dir: /workspace
+
+    environment:
+      HOME: /home/opencode
+      TERM: xterm-256color
+      COLORTERM: truecolor
+
+      DISPLAY: ${DISPLAY}
+
+      SSH_AUTH_SOCK: /ssh-agent
+
+      GIT_TERMINAL_PROMPT: "0"
+
+    volumes:
+      # Current repository only.
+      - .:/workspace
+
+      # Shared OpenCode configuration.
+      - ${HOME}/.config/opencode:/home/opencode/.config/opencode
+
+      # SSH agent only; private keys are not mounted.
+      - ${SSH_AUTH_SOCK}:/ssh-agent
+
+      # SSH aliases and known hosts.
+      - ${HOME}/.ssh/config:/home/opencode/.ssh/config:ro
+      - ${HOME}/.ssh/known_hosts:/home/opencode/.ssh/known_hosts:ro
+
+      # X11 clipboard.
+      - /tmp/.X11-unix:/tmp/.X11-unix:ro
+
+    security_opt:
+      - no-new-privileges:true
+
+    cap_drop:
+      - ALL
+
+    tmpfs:
+      - /tmp:rw,exec,nosuid,nodev,size=512m,mode=1777
+      - /run:rw,nosuid,nodev,noexec,size=64m,mode=0755
+
+    restart: "no"

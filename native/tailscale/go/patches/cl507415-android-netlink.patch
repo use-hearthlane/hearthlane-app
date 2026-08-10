@@ -1,0 +1,302 @@
+From aa2144feedb11b185559102e6f6ee07dd060b837 Mon Sep 17 00:00:00 2001
+From: wlynxg <liuauthor@foxmail.com>
+Date: Tue, 14 Nov 2023 08:52:37 +0000
+Subject: [PATCH] x/mobile: fix net.Interface() and net.InterfaceAddrs() in Android11 version
+
+For https://github.com/golang/go/issues/40569
+Fix: In response to the modifications made to the permissions for accessing system MAC addresses in Android 11, ordinary applications encounter several main issues when using NETLINK sockets:
+
+- Not allowing bind operations on `NETLINK` sockets.
+- Not permitting the use of the `RTM_GETLINK` functionality.
+
+For detailed information, please refer to: https://developer.android.com/training/articles/user-data-ids#mac-11-plus
+
+As a result of the aforementioned reasons, using `net.Interfaces()` and `net.InterfaceAddrs()` from the Go net package in the Android environment leads to the `route ip+net: netlinkrib: permission denied` error.
+
+You can find specific issue details here: https://github.com/golang/go/issues/40569
+
+To address the issue of using the Go net package in the Android environment, we have made partial modifications to its source code to ensure proper functionality on Android.
+
+I have fully resolved the issues with `net.InterfaceAddrs()`.
+
+However, for `net.Interfaces()`, we have only addressed some problems, as the following issues still remain:
+- It can only return interfaces with IP addresses.
+- It cannot return hardware MAC addresses.
+
+Nevertheless, the fixed `net.Interfaces()` function now aligns with the Android API's `NetworkInterface.getNetworkInterfaces()` and can be used normally in most scenarios.
+
+The specific fix logic includes:
+
+Removing the `Bind()` operation on `Netlink` sockets in the `NetlinkRIB()` function.
+Using `ioctl` based on the Index number returned by `RTM_GETADDR` to retrieve the network card's name, MTU, and flags.
+
+## Test Code
+This part of the test code must be compiled into a jar and aar package that can be used under the Android 11 platform using gomobile
+
+use `net.InterfaceAddrs()` :
+```go
+func NetInterfaceAddrs() {
+	addrs, err := net.InterfaceAddrs()
+	if err != nil {
+		panic(err)
+	}
+
+	for _, addr := range addrs {
+		log.Println(addr)
+	}
+}
+```
+result:
+```
+127.0.0.1/8
+::1/128
+...
+192.168.6.143/24
+fe80::7e4f:4446:eb3:1eb8/64
+```
+use `net.Interfaces()` :
+```go
+func NetInterface() {
+	interfaces, err := net.Interfaces()
+	if err != nil {
+		panic(err)
+	}
+
+	for _, i := range interfaces {
+		log.Println(i)
+	}
+}
+```
+
+result:
+```
+{1 65536 lo  up|loopback|running}
+{15 1400 rmnet_data1  up|running}
+{24 1500 wlan0  up|broadcast|multicast|running}
+{3 1500 dummy0  up|broadcast|running}
+{4 1500 ifb0  up|broadcast|running}
+{5 1500 ifb1  up|broadcast|running}
+{12 1500 ifb2  up|broadcast|running}
+{14 1500 rmnet_data0  up|running}
+{16 1400 rmnet_data2  up|running}
+{17 1400 rmnet_data3  up|running}
+```
+
+Change-Id: Idf2fcd3cf88f1fc4d5c4a983717e1c601a63db74
+GitHub-Last-Rev: bff8d409ebfb8d4c8488325f13cb212b07cf6bb4
+GitHub-Pull-Request: golang/go#61089
+---
+
+diff --git a/src/net/interface_linux.go b/src/net/interface_linux.go
+index 9112ecc..9bd7115 100644
+--- a/src/net/interface_linux.go
++++ b/src/net/interface_linux.go
+@@ -6,16 +6,20 @@
+ 
+ import (
+ 	"os"
++	"runtime"
+ 	"syscall"
+ 	"unsafe"
+ )
+ 
+ // If the ifindex is zero, interfaceTable returns mappings of all
+-// network interfaces. Otherwise it returns a mapping of a specific
++// network interfaces. Otherwise, it returns a mapping of a specific
+ // interface.
+ func interfaceTable(ifindex int) ([]Interface, error) {
+ 	tab, err := syscall.NetlinkRIB(syscall.RTM_GETLINK, syscall.AF_UNSPEC)
+ 	if err != nil {
++		if runtime.GOOS == "android" && os.IsPermission(err) {
++			return interfaceTableAndroid(ifindex)
++		}
+ 		return nil, os.NewSyscallError("netlinkrib", err)
+ 	}
+ 	msgs, err := syscall.ParseNetlinkMessage(tab)
+@@ -270,3 +274,157 @@
+ 	}
+ 	return ifmat
+ }
++
++// Starting from Android 11, it is no longer possible to retrieve network card information
++// using the RTM_GETLINK method.
++// As a result, alternative methods need to be employed.
++// After considering the Android NetworkInterface.getNetworkInterfaces() method,
++// I opted to utilize the RTM_GETADDR + ioctl approach to obtain network card information.
++// However, it appears that retrieving the
++// HWAddr (hardware address) of the network card is currently not achievable.
++func interfaceTableAndroid(ifindex int) ([]Interface, error) {
++	tab, err := syscall.NetlinkRIB(syscall.RTM_GETADDR, syscall.AF_UNSPEC)
++	if err != nil {
++		return nil, os.NewSyscallError("netlinkrib", err)
++	}
++	msgs, err := syscall.ParseNetlinkMessage(tab)
++	if err != nil {
++		return nil, os.NewSyscallError("parsenetlinkmessage", err)
++	}
++
++	var ift []Interface
++	im := make(map[uint32]struct{})
++loop:
++	for _, m := range msgs {
++		switch m.Header.Type {
++		case syscall.NLMSG_DONE:
++			break loop
++		case syscall.RTM_NEWADDR:
++			ifam := (*syscall.IfAddrmsg)(unsafe.Pointer(&m.Data[0]))
++			if _, ok := im[ifam.Index]; ok {
++				continue
++			} else {
++				im[ifam.Index] = struct{}{}
++			}
++
++			if ifindex == 0 || ifindex == int(ifam.Index) {
++				ifi := newLinkAndroid(ifam)
++				if ifi != nil {
++					ift = append(ift, *ifi)
++				}
++				if ifindex == int(ifam.Index) {
++					break loop
++				}
++			}
++		}
++	}
++
++	return ift, nil
++}
++
++// According to the network card Index, get the Name, MTU and Flags of the network card through ioctl
++func newLinkAndroid(ifam *syscall.IfAddrmsg) *Interface {
++	ift := &Interface{Index: int(ifam.Index)}
++
++	name, err := indexToName(ifam.Index)
++	if err != nil {
++		return nil
++	}
++	ift.Name = name
++
++	mtu, err := nameToMTU(name)
++	if err != nil {
++		return nil
++	}
++	ift.MTU = mtu
++
++	flags, err := nameToFlags(name)
++	if err != nil {
++		return nil
++	}
++	ift.Flags = flags
++	return ift
++}
++
++func ioctl(fd int, req uint, arg unsafe.Pointer) error {
++	_, _, e1 := syscall.Syscall(syscall.SYS_IOCTL, uintptr(fd), uintptr(req), uintptr(arg))
++	if e1 != 0 {
++		return e1
++	}
++	return nil
++}
++
++func indexToName(index uint32) (string, error) {
++	fd, err := syscall.Socket(syscall.AF_INET, syscall.SOCK_DGRAM|syscall.SOCK_CLOEXEC, 0)
++	if err != nil {
++		return "", err
++	}
++	defer syscall.Close(fd)
++
++	var ifr [40]byte
++	*(*uint32)(unsafe.Pointer(&ifr[syscall.IFNAMSIZ])) = index
++	err = ioctl(fd, syscall.SIOCGIFNAME, unsafe.Pointer(&ifr[0]))
++	if err != nil {
++		return "", err
++	}
++
++	return string(trim(ifr[:syscall.IFNAMSIZ])), nil
++}
++
++func nameToMTU(name string) (int, error) {
++	// Leave room for terminating NULL byte.
++	if len(name) >= syscall.IFNAMSIZ {
++		return 0, syscall.EINVAL
++	}
++
++	fd, err := syscall.Socket(syscall.AF_INET, syscall.SOCK_DGRAM|syscall.SOCK_CLOEXEC, 0)
++	if err != nil {
++		return 0, err
++	}
++	defer syscall.Close(fd)
++
++	var ifr [40]byte
++	copy(ifr[:], name)
++	err = ioctl(fd, syscall.SIOCGIFMTU, unsafe.Pointer(&ifr[0]))
++	if err != nil {
++		return 0, err
++	}
++
++	return int(*(*int32)(unsafe.Pointer(&ifr[syscall.IFNAMSIZ]))), nil
++}
++
++func nameToFlags(name string) (Flags, error) {
++	// Leave room for terminating NULL byte.
++	if len(name) >= syscall.IFNAMSIZ {
++		return 0, syscall.EINVAL
++	}
++
++	fd, err := syscall.Socket(syscall.AF_INET, syscall.SOCK_DGRAM|syscall.SOCK_CLOEXEC, 0)
++	if err != nil {
++		return 0, err
++	}
++	defer syscall.Close(fd)
++
++	var ifr [40]byte
++	copy(ifr[:], name)
++	err = ioctl(fd, syscall.SIOCGIFFLAGS, unsafe.Pointer(&ifr[0]))
++	if err != nil {
++		return 0, err
++	}
++
++	return linkFlags(*(*uint32)(unsafe.Pointer(&ifr[syscall.IFNAMSIZ]))), nil
++}
++
++func trim(data []byte) []byte {
++	if len(data) == 0 {
++		return nil
++	}
++
++	index := len(data) - 1
++
++	for ; index > 0 && data[index] == 0; index-- {
++	}
++	result := make([]byte, index+1)
++	copy(result, data)
++	return result
++}
+diff --git a/src/syscall/netlink_linux.go b/src/syscall/netlink_linux.go
+index a503a07..fe9aa57 100644
+--- a/src/syscall/netlink_linux.go
++++ b/src/syscall/netlink_linux.go
+@@ -7,6 +7,8 @@
+ package syscall
+ 
+ import (
++	"internal/oserror"
++	"runtime"
+ 	"sync"
+ 	"unsafe"
+ )
+@@ -65,7 +67,14 @@
+ 	defer Close(s)
+ 	sa := &SockaddrNetlink{Family: AF_NETLINK}
+ 	if err := Bind(s, sa); err != nil {
+-		return nil, err
++		// Bind operation of Netlink socket is prohibited in Android11 and later versions
++		if runtime.GOOS != "android" {
++			return nil, err
++		}
++
++		if e, ok := err.(Errno); !ok && !e.Is(oserror.ErrPermission) {
++			return nil, err
++		}
+ 	}
+ 	wb := newNetlinkRouteRequest(proto, 1, family)
+ 	if err := Sendto(s, wb, 0, sa); err != nil {
