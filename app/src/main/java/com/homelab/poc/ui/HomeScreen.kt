@@ -337,6 +337,11 @@ private fun LiveView(
     var playbackStatus by remember { mutableStateOf<PlaybackStatus>(PlaybackStatus.Idle) }
     val metrics by player.metrics.collectAsState()
     var resumeTick by remember { mutableStateOf(0) }
+    // Last resolved go2rtc stream name. Reused on recovery so a dead session is
+    // re-established without re-listing the streams first; invalidated on any
+    // failure so a stale name (e.g. after a Frigate restart) self-heals on the
+    // next attempt.
+    var lastStreamName by remember { mutableStateOf<String?>(null) }
     // Bounds automatic session recovery so a truly dead stream cannot loop
     // forever. A discovery is never silently dropped: the latest request
     // cancels and supersedes any in-flight one.
@@ -378,7 +383,10 @@ private fun LiveView(
             try {
                 discoveryError = null
                 val streams = Go2RtcStreams(getter)
-                val name = streams.firstStreamName(baseUrl, STREAMS_TIMEOUT_MS)
+                // Recovery (a dead go2rtc session) can reuse the last resolved
+                // stream name: only a fresh session is required, the name does
+                // not change. Re-listing the streams is then only needed once.
+                val name = lastStreamName ?: streams.firstStreamName(baseUrl, STREAMS_TIMEOUT_MS)
                 if (name == null) {
                     discoveryError = streamEmptyMessage
                 } else {
@@ -390,12 +398,17 @@ private fun LiveView(
                     // consumer cannot attach.
                     val url = streams.resolveMediaPlaylistUrl(baseUrl, name, STREAMS_TIMEOUT_MS)
                     Log.i(TAG, "live stream resolved: $name -> $url via $transport")
+                    lastStreamName = name
                     streamUrl = url
                     player.play(url)
                 }
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
             } catch (e: Exception) {
+                // Invalidate the cached name so a stale one (Frigate restart,
+                // renamed camera) is not reused forever: the next attempt
+                // re-lists the streams.
+                lastStreamName = null
                 Log.e(TAG, "stream discovery failed", e)
                 discoveryError = e.message ?: e.toString()
             }
