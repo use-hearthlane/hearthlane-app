@@ -2,7 +2,7 @@
 
 ## Status
 
-**Phase:** Phase 2 — Transparent Frigate Connectivity (in progress)  
+**Phase:** Phase 4 — Live Video Spike (pending)  
 **Primary experiment:** Embedded Tailscale + remote Frigate live video on modern Android  
 **Scope:** Technical POC only
 
@@ -232,6 +232,13 @@ Deliverable:
 A short Decision Log entry selecting the first transport experiment.
 
 No UI work is required in this phase.
+
+**Result (2026-08-11):** Transport selected. See the Decision Log entry
+"Phase 3 — HLS/fMP4 selected as the first live transport experiment". In
+summary: HLS served by go2rtc through the Frigate `/go2rtc/` proxy, consumed by
+ExoPlayer over a tsnet-backed custom DataSource. WebRTC is deferred to the
+`VpnService` fallback path (Experiment B) because Android media stacks use
+OS-level sockets. No UI work was performed.
 
 ---
 
@@ -530,6 +537,62 @@ proven by the by-IP Frigate dial.
 
 **Validation:** `go vet`/`test`/`build` green; patched-toolchain APK rebuilt
 with symbol `tsembed.tcpDNSQuery`. Device re-test pending.
+
+### 2026-08-11 — Phase 3: HLS/fMP4 selected as the first live transport experiment
+
+**Findings:**
+
+- Frigate 0.17.1 bundles go2rtc and reverse-proxies its HTTP API under
+  `/go2rtc/` on the Frigate origin (current Frigate docs: `GET /go2rtc/streams`,
+  `GET /go2rtc/streams/{name}`, and go2rtc's own API paths such as
+  `/go2rtc/stream.m3u8?src=...`). The same origin already proven in Phase 2
+  (`site.omni.corp`) exposes these paths with no Frigate-native auth on this
+  install.
+- go2rtc live transports reachable through Frigate: MSE (fMP4 over the
+  WebSocket path), WebRTC (port 8555 TCP/UDP, requires ICE candidates; the
+  Frigate docs note that a Tailscale IP must be added as a candidate for
+  Tailscale access), HLS (`/go2rtc/stream.m3u8?src=...`, MPEG-TS by default,
+  fMP4 with `&mp4`), and jsmpeg (detect stream; browser-only, CPU-heavy; not a
+  native-Android candidate).
+- **Application-scoped constraint (decisive):** Android media/WebRTC stacks
+  (libwebrtc via `mediastreamer`/`webrtc-android`, and similarly player
+  libraries) create OS-level sockets that cannot be pointed at the embedded
+  tsnet dialers. WebRTC media therefore cannot traverse the embedded tunnel
+  without a device-wide `VpnService`. This answers the open question
+  "Does WebRTC require network behavior that pushes the design toward
+  `VpnService`?": yes, unless a library exposes a custom transport.
+- HLS is plain HTTP request/response (manifest plus per-segment GETs), so it
+  reuses the proven Phase 2 tunnel path (netstack TCP through the subnet route)
+  and is consumed by ExoPlayer through a custom `DataSource` that performs its
+  GETs via the Go bridge. No `VpnService` required. Latency is segment-bound
+  (~1-3 s), acceptable for a family live view, and the `core/playback` boundary
+  allows swapping to WebRTC later without UI changes.
+- Target camera is H.264 (main and sub) per the user, so no video transcode is
+  needed for ExoPlayer/MediaCodec. go2rtc repackages PCMA/PCMU/PCM audio to
+  FLAC for HLS/fMP4 (`&mp4=flac`); audio is optional for the POC.
+
+**Decision:** First live-transport experiment (Phase 4 Experiment A) is HLS via
+the go2rtc proxy — `http://site.omni.corp/go2rtc/stream.m3u8?src=<camera>&mp4`
+(fMP4/H.264) — played with ExoPlayer (media3) using a custom `DataSource` whose
+HTTP requests dial through the embedded tsnet path. The camera/stream name is
+resolved at runtime from `GET /go2rtc/streams` (first available stream). WebRTC
+remains documented as the `VpnService`-dependent Experiment B if HLS proves
+unusable.
+
+**Open items before Phase 4 coding:**
+- go2rtc's HLS "differs from the standards and may not work with all players";
+  validate the manifest in ExoPlayer first. Fallbacks: MPEG-TS HLS (no `&mp4`),
+  go2rtc progressive `stream.mp4`, then Experiment B.
+- go2rtc stream names confirmed (user config): `backyard`, `backyard_sub`,
+  `hall`, `hall_sub`, `garage`, `garage_sub`, `gate`, `gate_sub` (four cameras,
+  each with a `_sub` variant). Source URLs are masked in the user's paste and
+  are not needed by the app. Presence of an ffmpeg audio transcode is still
+  unconfirmed and will be read from `GET /go2rtc/streams` at runtime; audio is
+  optional for the POC.
+- The Go bridge currently exposes `HttpGet` returning a `String`; HLS segment
+  bodies are binary, so a bytes variant (or short-lived byte stream) is needed.
+  Per-request full bodies are acceptable because each HLS request is a bounded
+  response.
 
 ### 2026-08-11 — Phase 2 device validation passed on mobile data
 
