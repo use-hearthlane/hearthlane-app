@@ -57,6 +57,18 @@ class TsnetGatewayImpl(
         throw IOException("tailscale did not reach Running within ${connectTimeoutMs}ms")
     }
 
+    override suspend fun stopIfRunning() {
+        val status = TailscaleBridge.status()
+        if (status.state == ConnectivityState.STOPPED ||
+            status.state == ConnectivityState.DISCONNECTED ||
+            status.state == ConnectivityState.FAILED
+        ) {
+            return
+        }
+        Log.i(TAG, "stopping embedded Tailscale node after local connection confirmed")
+        TailscaleBridge.stop()
+    }
+
     override suspend fun httpGet(url: String, timeoutMs: Long): String =
         withContext(Dispatchers.IO) {
             TailscaleBridge.httpGet(url, timeoutMs)

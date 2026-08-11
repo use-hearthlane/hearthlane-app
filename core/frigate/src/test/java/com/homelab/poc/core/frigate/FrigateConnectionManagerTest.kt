@@ -14,58 +14,93 @@ class FrigateConnectionManagerTest {
     )
 
     @Test
-    fun `local success returns CONNECTED_LOCAL and never starts Tailscale`() = runTest {
-        val tailscale = StubTransport(TransportKind.TAILSCALE, FrigateTransportResult.Success("0.15.1"))
-
-        val manager = FrigateConnectionManager(
-            config = config,
-            localTransport = StubTransport(TransportKind.LOCAL, FrigateTransportResult.Success("0.15.1")),
-            tailscaleTransport = tailscale,
+    fun `clean LAN launch - local success keeps Tailscale stopped`() = runTest {
+        val gateway = StubGateway()
+        val manager = managerWith(
+            local = StubTransport(TransportKind.LOCAL, FrigateTransportResult.Success("0.15.1")),
+            gateway = gateway,
         )
 
         assertEquals(
             FrigateConnection.Connected(TransportKind.LOCAL, "0.15.1"),
             manager.connect(),
         )
-        assertEquals("Tailscale transport must not be probed on local success", 0, tailscale.probeCalls)
+        assertEquals("Tailscale must never start on a local success", 0, gateway.startCalls)
+        assertEquals("nothing was running, so nothing must be stopped", 0, gateway.stopCalls)
     }
 
     @Test
-    fun `local failure starts Tailscale and Tailscale success returns CONNECTED_TAILSCALE`() = runTest {
-        val tailscale = StubTransport(TransportKind.TAILSCALE, FrigateTransportResult.Success("0.15.2"))
-
-        val manager = FrigateConnectionManager(
-            config = config,
-            localTransport = StubTransport(TransportKind.LOCAL, FrigateTransportResult.Failure("network unreachable")),
-            tailscaleTransport = tailscale,
+    fun `remote - local failure starts Tailscale and returns CONNECTED_TAILSCALE`() = runTest {
+        val gateway = StubGateway()
+        val manager = managerWith(
+            local = StubTransport(TransportKind.LOCAL, FrigateTransportResult.Failure("network unreachable")),
+            gateway = gateway,
         )
 
         assertEquals(
             FrigateConnection.Connected(TransportKind.TAILSCALE, "0.15.2"),
             manager.connect(),
         )
-        assertEquals("Tailscale transport must be probed exactly once after local failure", 1, tailscale.probeCalls)
+        assertEquals("Tailscale must start exactly once for the fallback", 1, gateway.startCalls)
+        assertEquals("a remote success keeps the node running", 0, gateway.stopCalls)
+    }
+
+    @Test
+    fun `remote to LAN transition - running Tailscale is stopped after local success`() = runTest {
+        val gateway = StubGateway(running = true)
+        val manager = managerWith(
+            local = StubTransport(TransportKind.LOCAL, FrigateTransportResult.Success("0.15.1")),
+            gateway = gateway,
+        )
+
+        assertEquals(
+            FrigateConnection.Connected(TransportKind.LOCAL, "0.15.1"),
+            manager.connect(),
+        )
+        assertEquals(
+            "a running node left by a previous remote attempt must be stopped after LOCAL is confirmed",
+            1,
+            gateway.stopCalls,
+        )
+        assertEquals("no new start on the local-success path", 0, gateway.startCalls)
+        assertTrue("the node must be stopped", !gateway.running)
+    }
+
+    @Test
+    fun `local failure - Tailscale is never stopped before the fallback is decided`() = runTest {
+        val gateway = StubGateway(running = true)
+        val manager = managerWith(
+            local = StubTransport(TransportKind.LOCAL, FrigateTransportResult.Failure("unreachable")),
+            gateway = gateway,
+        )
+
+        assertEquals(
+            FrigateConnection.Connected(TransportKind.TAILSCALE, "0.15.2"),
+            manager.connect(),
+        )
+        assertEquals("stop must not run while the fallback is being decided", 0, gateway.stopCalls)
+        assertEquals("already running node must not be restarted", 0, gateway.startCalls)
+        assertTrue("the node must remain running for the fallback", gateway.running)
     }
 
     @Test
     fun `local timeout starts Tailscale`() = runTest {
-        val tailscale = StubTransport(TransportKind.TAILSCALE, FrigateTransportResult.Success("0.15.3"))
-
-        val manager = FrigateConnectionManager(
-            config = config,
-            localTransport = HangingTransport(TransportKind.LOCAL),
-            tailscaleTransport = tailscale,
+        val gateway = StubGateway()
+        val manager = managerWith(
+            local = HangingTransport(TransportKind.LOCAL),
+            gateway = gateway,
         )
 
         assertEquals(
-            FrigateConnection.Connected(TransportKind.TAILSCALE, "0.15.3"),
+            FrigateConnection.Connected(TransportKind.TAILSCALE, "0.15.2"),
             manager.connect(),
         )
-        assertEquals("Tailscale transport must be probed after a local timeout", 1, tailscale.probeCalls)
+        assertEquals("Tailscale must be probed after a local timeout", 1, gateway.startCalls)
     }
 
     @Test
     fun `both paths fail returns FAILED and forwards the enrollment url`() = runTest {
+        val gateway = StubGateway()
         val manager = FrigateConnectionManager(
             config = config,
             localTransport = StubTransport(TransportKind.LOCAL, FrigateTransportResult.Failure("unreachable")),
@@ -76,6 +111,7 @@ class FrigateConnectionManagerTest {
                     authUrl = "https://login.tailscale.com/a/example",
                 ),
             ),
+            tailscaleGateway = gateway,
         )
 
         val result = manager.connect()
@@ -83,6 +119,47 @@ class FrigateConnectionManagerTest {
         assertTrue(result is FrigateConnection.Failed)
         val failed = result as FrigateConnection.Failed
         assertEquals("https://login.tailscale.com/a/example", failed.authUrl)
+        assertEquals("nothing must be stopped when the fallback itself failed", 0, gateway.stopCalls)
+    }
+
+    /**
+     * Builds a manager whose Tailscale transport drives [gateway], so start/stop
+     * lifecycle calls are recorded exactly as the strategy performs them.
+     */
+    private fun managerWith(
+        local: FrigateTransport,
+        gateway: StubGateway,
+    ): FrigateConnectionManager = FrigateConnectionManager(
+        config = config,
+        localTransport = local,
+        tailscaleTransport = TailscaleTransport(gateway, config),
+        tailscaleGateway = gateway,
+    )
+
+    /** Simulates the embedded node: start/stop lifecycle plus a fixed probe. */
+    private class StubGateway(
+        var running: Boolean = false,
+    ) : TsnetGateway {
+        var startCalls: Int = 0
+            private set
+        var stopCalls: Int = 0
+            private set
+
+        override suspend fun ensureRunning() {
+            if (!running) {
+                startCalls++
+                running = true
+            }
+        }
+
+        override suspend fun stopIfRunning() {
+            if (running) {
+                stopCalls++
+                running = false
+            }
+        }
+
+        override suspend fun httpGet(url: String, timeoutMs: Long): String = "0.15.2"
     }
 
     /** Returns a fixed result and counts how many times it was probed. */

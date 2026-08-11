@@ -17,6 +17,15 @@ interface TsnetGateway {
     suspend fun ensureRunning()
 
     /**
+     * Stops the embedded node if it is currently up. No-op when the node is
+     * stopped, disconnected or failed. The connection strategy calls this only
+     * after a LOCAL Frigate success, to release a node that a previous remote
+     * attempt had started; it is never called while a remote fallback is being
+     * decided.
+     */
+    suspend fun stopIfRunning()
+
+    /**
      * Performs an HTTP GET exclusively over the tsnet network. Must never fall
      * back to the normal Android network.
      *

@@ -12,6 +12,14 @@ import kotlinx.coroutines.withTimeoutOrNull
  *    again over the tsnet network; on success report [TransportKind.TAILSCALE].
  * 3. Otherwise report [FrigateConnection.Failed].
  *
+ * Lifecycle policy:
+ * - The embedded node is only started by the Tailscale fallback (via
+ *   [tailscaleGateway]), never by the local probe.
+ * - After a confirmed LOCAL success the node is released with
+ *   [TsnetGateway.stopIfRunning] if a previous remote attempt left it running.
+ * - The node is never stopped before the local result is known, and never
+ *   started and stopped within a single probe cycle (no flapping).
+ *
  * The UI consumes only the returned [FrigateConnection]; it has no knowledge
  * of transports or the Tailscale lifecycle.
  */
@@ -19,6 +27,7 @@ class FrigateConnectionManager(
     private val config: FrigateConfig,
     private val localTransport: FrigateTransport,
     private val tailscaleTransport: FrigateTransport,
+    private val tailscaleGateway: TsnetGateway,
 ) {
 
     suspend fun connect(): FrigateConnection {
@@ -31,6 +40,10 @@ class FrigateConnectionManager(
         when (local) {
             is FrigateTransportResult.Success -> {
                 Log.i(TAG, "local probe succeeded (version=${local.version})")
+                // Local access is confirmed: release the embedded node if a
+                // previous remote attempt left it running. This is the only
+                // place the node is stopped and it happens only on success.
+                tailscaleGateway.stopIfRunning()
                 return FrigateConnection.Connected(TransportKind.LOCAL, local.version)
             }
             is FrigateTransportResult.Failure -> {

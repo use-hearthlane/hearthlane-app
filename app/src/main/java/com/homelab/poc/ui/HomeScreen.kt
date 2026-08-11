@@ -69,6 +69,7 @@ fun HomeScreen(hostname: String, stateDir: String, frigateConfig: FrigateConfig)
                 config = config,
                 localTransport = LocalTransport(config),
                 tailscaleTransport = TailscaleTransport(gateway, config),
+                tailscaleGateway = gateway,
             )
             val result = withContext(Dispatchers.IO) { manager.connect() }
             connection = result
