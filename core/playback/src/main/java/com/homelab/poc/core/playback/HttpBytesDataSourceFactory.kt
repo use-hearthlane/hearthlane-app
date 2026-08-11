@@ -1,0 +1,18 @@
+package com.homelab.poc.core.playback
+
+import androidx.media3.common.util.UnstableApi
+import androidx.media3.datasource.DataSource
+import com.homelab.poc.core.connectivity.HttpBytesGetter
+
+/**
+ * [DataSource.Factory] that always creates [HttpBytesDataSource] instances
+ * bound to the given getter. Stateless and safe to share across requests.
+ */
+@UnstableApi
+class HttpBytesDataSourceFactory(
+    private val getter: HttpBytesGetter,
+    private val timeoutMs: Long,
+) : DataSource.Factory {
+
+    override fun createDataSource(): DataSource = HttpBytesDataSource(getter, timeoutMs)
+}

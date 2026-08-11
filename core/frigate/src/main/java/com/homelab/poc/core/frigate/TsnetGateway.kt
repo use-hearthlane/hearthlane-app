@@ -1,5 +1,7 @@
 package com.homelab.poc.core.frigate
 
+import com.homelab.poc.core.connectivity.HttpBytesResult
+
 /**
  * Application-facing gateway to the embedded Tailscale node. Kept as an
  * interface so the fallback strategy can be unit tested without a real node;
@@ -32,6 +34,18 @@ interface TsnetGateway {
      * @throws Exception on failure.
      */
     suspend fun httpGet(url: String, timeoutMs: Long): String
+
+    /**
+     * Performs an HTTP GET exclusively over the tsnet network and returns the
+     * full response (status, headers, body). This is the transport primitive
+     * used for media/playback requests, which need the body bytes and the
+     * final URL rather than a parsed string. Must never fall back to the
+     * normal Android network.
+     *
+     * @throws Exception on transport failure; a non-2xx status is returned,
+     *   not thrown.
+     */
+    suspend fun httpGetBytes(url: String, timeoutMs: Long): HttpBytesResult
 }
 
 /** Raised when the embedded node needs interactive enrollment to proceed. */

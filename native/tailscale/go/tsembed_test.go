@@ -1,8 +1,13 @@
 package tsembed
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
+	"net"
+	"net/http"
+	"net/http/httptest"
+	urlpkg "net/url"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -52,6 +57,103 @@ func TestHttpGetRequiresRunningNode(t *testing.T) {
 	if _, err := HttpGet("http://frigate:5000/api/version", 1000); err == nil {
 		t.Fatal("HttpGet must fail when the node is not running")
 	}
+}
+
+func TestHttpGetBytesRequiresRunningNode(t *testing.T) {
+	if _, err := HttpGetBytes("http://frigate:5000/api/version", 1000); err == nil {
+		t.Fatal("HttpGetBytes must fail when the node is not running")
+	}
+}
+
+func TestHTTPResultFromResponse(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/ok", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/vnd.apple.mpegurl")
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte("#EXTM3U\n"))
+	})
+	mux.HandleFunc("/missing", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNotFound)
+		w.Write([]byte("nope"))
+	})
+	mux.HandleFunc("/redirect", func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, "/ok", http.StatusFound)
+	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	client := newClient(func(ctx context.Context, network, addr string) (net.Conn, error) {
+		return (&net.Dialer{}).DialContext(ctx, network, addr)
+	})
+
+	t.Run("captures status content type and body", func(t *testing.T) {
+		u, err := urlpkg.Parse(srv.URL + "/ok")
+		if err != nil {
+			t.Fatal(err)
+		}
+		resp, err := doGet(context.Background(), client, u, u.Hostname())
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer resp.Body.Close()
+		res, err := httpResultFromResponse(resp)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if res.StatusCode != http.StatusOK {
+			t.Fatalf("StatusCode = %d, want 200", res.StatusCode)
+		}
+		if res.ContentType != "application/vnd.apple.mpegurl" {
+			t.Fatalf("ContentType = %q, want application/vnd.apple.mpegurl", res.ContentType)
+		}
+		if string(res.Body) != "#EXTM3U\n" {
+			t.Fatalf("Body = %q, want %q", string(res.Body), "#EXTM3U\n")
+		}
+		if res.FinalURL != srv.URL+"/ok" {
+			t.Fatalf("FinalURL = %q, want %q", res.FinalURL, srv.URL+"/ok")
+		}
+	})
+
+	t.Run("non-2xx is not an error and preserves the status", func(t *testing.T) {
+		u, err := urlpkg.Parse(srv.URL + "/missing")
+		if err != nil {
+			t.Fatal(err)
+		}
+		resp, err := doGet(context.Background(), client, u, u.Hostname())
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer resp.Body.Close()
+		res, err := httpResultFromResponse(resp)
+		if err != nil {
+			t.Fatalf("non-2xx must not be an error: %v", err)
+		}
+		if res.StatusCode != http.StatusNotFound {
+			t.Fatalf("StatusCode = %d, want 404", res.StatusCode)
+		}
+	})
+
+	t.Run("redirects are followed and FinalURL is the final location", func(t *testing.T) {
+		u, err := urlpkg.Parse(srv.URL + "/redirect")
+		if err != nil {
+			t.Fatal(err)
+		}
+		resp, err := doGet(context.Background(), client, u, u.Hostname())
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer resp.Body.Close()
+		res, err := httpResultFromResponse(resp)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if res.StatusCode != http.StatusOK {
+			t.Fatalf("StatusCode after redirect = %d, want 200", res.StatusCode)
+		}
+		if res.FinalURL != srv.URL+"/ok" {
+			t.Fatalf("FinalURL after redirect = %q, want %q", res.FinalURL, srv.URL+"/ok")
+		}
+	})
 }
 
 func waitForState(t *testing.T, want string) status {

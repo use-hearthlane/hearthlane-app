@@ -4,8 +4,9 @@ plugins {
 }
 
 // Responsibility (Phase 3+): own the Android playback implementation. Keeps
-// transport/player experimentation (WebRTC/MSE/HLS) behind this boundary so
-// alternatives can be tested without rewriting the UI.
+// transport/player experimentation (HLS in this spike; WebRTC/MSE later)
+// behind this boundary so alternatives can be swapped without rewriting the
+// UI. No Frigate-specific code here.
 android {
     namespace = "com.homelab.poc.core.playback"
     compileSdk = libs.versions.compileSdk.get().toInt()
@@ -18,10 +19,26 @@ android {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
     }
+
+    testOptions {
+        // Allow android.util.Log to be a no-op in JVM unit tests.
+        unitTests.isReturnDefaultValues = true
+    }
 }
 
 kotlin {
     compilerOptions {
         jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17)
     }
+}
+
+dependencies {
+    implementation(project(":core:connectivity"))
+    implementation(libs.kotlinx.coroutines.core)
+    implementation(libs.media3.datasource)
+    implementation(libs.media3.exoplayer)
+    implementation(libs.media3.exoplayer.hls)
+    implementation(libs.media3.ui)
+
+    testImplementation(libs.junit)
 }

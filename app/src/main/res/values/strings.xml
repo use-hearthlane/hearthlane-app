@@ -17,4 +17,14 @@
     <string name="copy_error_button">Copy error</string>
     <string name="connect_button">Connect to Frigate</string>
     <string name="retry_button">Retry</string>
+
+    <string name="live_view_title">Live view (Phase 4 HLS spike)</string>
+    <string name="live_view_transport">Transport: %1$s</string>
+    <string name="live_view_discovering">Discovering camera stream…</string>
+    <string name="live_view_stream_empty">Frigate reported no go2rtc streams. Configure a stream and reconnect.</string>
+    <string name="live_view_starting">Starting live playback…</string>
+    <string name="live_view_playing">Playing</string>
+    <string name="live_view_error">Playback error: %1$s</string>
+    <string name="live_view_stop">Stop</string>
 </resources>
+

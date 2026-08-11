@@ -2,6 +2,7 @@ package com.homelab.poc.tailscale
 
 import com.homelab.poc.core.connectivity.ConnectivityState
 import com.homelab.poc.core.connectivity.ConnectivityStatus
+import com.homelab.poc.core.connectivity.HttpBytesResult
 import com.homelab.poc.tsembed.Tsembed
 import org.json.JSONObject
 
@@ -30,6 +31,25 @@ object TailscaleBridge {
      * @throws Exception when the node is not running or the request fails.
      */
     fun httpGet(url: String, timeoutMs: Long): String = Tsembed.httpGet(url, timeoutMs)
+
+    /**
+     * Performs an HTTP GET exclusively over the embedded tailnet and returns
+     * the full response (status, content type, final URL and body). Blocks the
+     * calling thread and must not be invoked on the main thread. Non-2xx
+     * statuses are returned, not thrown.
+     *
+     * @throws Exception when the node is not running or the request cannot
+     *   reach the server.
+     */
+    fun httpGetBytes(url: String, timeoutMs: Long): HttpBytesResult {
+        val result = Tsembed.httpGetBytes(url, timeoutMs)
+        return HttpBytesResult(
+            statusCode = result.statusCode.toInt(),
+            contentType = result.contentType,
+            finalUrl = result.finalURL,
+            body = result.body,
+        )
+    }
 
     /**
      * Reports the current embedded node state. Cheap to poll for a UI loop.

@@ -241,6 +241,17 @@ func logf(format string, args ...any) {
 	log.Printf("tsembed: "+format, args...)
 }
 
+// HttpResult carries a completed HTTP GET response. The status code, content
+// type, final URL and body are all preserved so callers can react to non-2xx
+// responses: a request that reached the server never returns an error for a
+// non-2xx status.
+type HttpResult struct {
+	StatusCode  int
+	ContentType string
+	FinalURL    string
+	Body        []byte
+}
+
 // HttpGet performs an HTTP GET over the embedded tailnet. The request is made
 // exclusively with a client whose dialer routes through the tailscale engine
 // (tsdial.UserDial / netstack), so it can never fall back to the OS network.
@@ -252,18 +263,37 @@ func logf(format string, args ...any) {
 // the system resolver, which on Android does not know split-DNS domains such
 // as a homelab "omni.corp".
 func HttpGet(url string, timeoutMs int64) (string, error) {
+	res, err := HttpGetBytes(url, timeoutMs)
+	if err != nil {
+		return "", err
+	}
+	if res.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("tsembed: GET %s: HTTP %d", url, res.StatusCode)
+	}
+	return string(res.Body), nil
+}
+
+// HttpGetBytes is the generic transport primitive: an HTTP GET over the
+// embedded tailnet that preserves the status code, content type, final URL
+// (after redirects) and the full response body. It is intentionally free of
+// any video, HLS or Frigate concerns. The node must already be Running.
+//
+// The whole response is buffered in memory. This is acceptable for the Phase 4
+// HLS spike because every request is a bounded response (a manifest or a media
+// segment); a streaming consumer would need a different primitive.
+func HttpGetBytes(url string, timeoutMs int64) (*HttpResult, error) {
 	mu.Lock()
 	s, running := server, started
 	mu.Unlock()
 	if s == nil || !running {
-		return "", errors.New("tsembed: node not running")
+		return nil, errors.New("tsembed: node not running")
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(timeoutMs)*time.Millisecond)
 	defer cancel()
 
 	u, err := urlpkg.Parse(url)
 	if err != nil {
-		return "", fmt.Errorf("tsembed: parse url: %w", err)
+		return nil, fmt.Errorf("tsembed: parse url: %w", err)
 	}
 	host := u.Hostname()
 	port := u.Port()
@@ -277,39 +307,68 @@ func HttpGet(url string, timeoutMs int64) (string, error) {
 
 	ip, err := resolveHost(ctx, s, host)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 
 	portNum, err := strconv.Atoi(port)
 	if err != nil || portNum < 1 || portNum > 65535 {
-		return "", fmt.Errorf("tsembed: invalid port %q", port)
+		return nil, fmt.Errorf("tsembed: invalid port %q", port)
 	}
 
-	client := &http.Client{
-		Transport: &http.Transport{
-			DialContext: func(dctx context.Context, network, _ string) (net.Conn, error) {
-				return dialNetstackTCP(dctx, s, ip, portNum)
-			},
-		},
-	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	client := newClient(func(dctx context.Context, network, _ string) (net.Conn, error) {
+		return dialNetstackTCP(dctx, s, ip, portNum)
+	})
+	resp, err := doGet(ctx, client, u, host)
 	if err != nil {
-		return "", fmt.Errorf("tsembed: build request: %w", err)
+		return nil, err
+	}
+	defer resp.Body.Close()
+	return httpResultFromResponse(resp)
+}
+
+// newClient builds an http.Client whose transport dials with the given
+// DialContext. Production dials through netstack (the tunnel); tests inject a
+// standard dialer.
+func newClient(dial func(ctx context.Context, network, addr string) (net.Conn, error)) *http.Client {
+	return &http.Client{
+		Transport: &http.Transport{DialContext: dial},
+	}
+}
+
+// doGet performs a GET on an already-parsed URL, preserving the Host header so
+// the server builds absolute redirect/segment URLs against the requested
+// hostname rather than the resolved IP.
+func doGet(ctx context.Context, client *http.Client, u *urlpkg.URL, host string) (*http.Response, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u.String(), nil)
+	if err != nil {
+		return nil, fmt.Errorf("tsembed: build request: %w", err)
 	}
 	req.Host = host
 	resp, err := client.Do(req)
 	if err != nil {
-		return "", fmt.Errorf("tsembed: GET %s: %w", url, err)
+		return nil, fmt.Errorf("tsembed: GET %s: %w", u.String(), err)
 	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("tsembed: GET %s: HTTP %s", url, resp.Status)
-	}
+	return resp, nil
+}
+
+// httpResultFromResponse converts an HTTP response into an [HttpResult],
+// capturing the final URL after any redirects followed by the client. Non-2xx
+// responses are not treated as errors.
+func httpResultFromResponse(resp *http.Response) (*HttpResult, error) {
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return "", fmt.Errorf("tsembed: read response: %w", err)
+		return nil, fmt.Errorf("tsembed: read response: %w", err)
 	}
-	return string(body), nil
+	finalURL := ""
+	if resp.Request != nil && resp.Request.URL != nil {
+		finalURL = resp.Request.URL.String()
+	}
+	return &HttpResult{
+		StatusCode:  resp.StatusCode,
+		ContentType: resp.Header.Get("Content-Type"),
+		FinalURL:    finalURL,
+		Body:        body,
+	}, nil
 }
 
 // resolveHost resolves host to an IP. Literal IPs pass through; hostnames are

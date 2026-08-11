@@ -33,6 +33,7 @@ kotlin {
 }
 
 dependencies {
+    implementation(project(":core:connectivity"))
     implementation(libs.kotlinx.coroutines.core)
 
     testImplementation(libs.junit)

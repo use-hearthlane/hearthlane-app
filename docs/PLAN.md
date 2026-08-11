@@ -2,7 +2,7 @@
 
 ## Status
 
-**Phase:** Phase 4 — Live Video Spike (pending)  
+**Phase:** Phase 4 — Live Video Spike (implementation done; device validation pending)  
 **Primary experiment:** Embedded Tailscale + remote Frigate live video on modern Android  
 **Scope:** Technical POC only
 
@@ -276,6 +276,40 @@ Exit condition:
 
 One camera shows genuine live video on the physical Android device.
 
+**Implementation status (2026-08-11):** Experiment A (application-scoped HLS) is
+coded end to end and builds/tests/lints green; physical-device playback
+validation is pending.
+
+- `core/connectivity` gained the generic HTTP transport primitive
+  (`HttpBytesGetter`, `HttpBytesResult`): a full GET returning status, content
+  type, final URL and body, never falling back to another network.
+- `native/tailscale/go` exposes `HttpGetBytes` (gomobile `HttpResult`); the
+  Go bridge and `TsnetGatewayImpl.httpGetBytes` map it into
+  `HttpBytesResult`, and `TsnetHttpBytesGetter` routes Tailscale media
+  requests exclusively through the tsnet path.
+- `core/frigate` selects the getter per transport (`bytesGetterFor`:
+  `HttpUrlConnectionBytesGetter` for LOCAL, `TsnetHttpBytesGetter` for
+  TAILSCALE) and resolves the first go2rtc stream (`GET /go2rtc/streams`,
+  order-preserving JSON key parser, no JSON dependency) plus the HLS URL
+  `/go2rtc/api/stream.m3u8?src={name}&mp4`.
+- `core/playback` owns ExoPlayer: `HttpBytesDataSource` (media3 `DataSource`
+  that runs every GET through the injected getter and serves the buffered
+  body) + `HlsMediaSource.Factory` + `LiveStreamPlayer` exposing a
+  `PlaybackStatus` flow. Whole-response buffering is acceptable because every
+  HLS request is a bounded playlist/segment; documented as a limitation.
+- The app UI (`HomeScreen` `LiveView`) discovers the stream, renders a
+  `PlayerView`, shows status, and stops/restarts playback. `usesCleartextTraffic`
+  is enabled for the POC because both the LAN and tailnet Frigate origins are
+  plain HTTP.
+
+Unit tests: transport selector never lets TAILSCALE touch the OS network,
+non-2xx and empty-stream handling, deterministic stream-name parsing, and the
+media3 `DataSource.Factory` wiring.
+
+**Device checklist for validation (run after APK install):** time to first
+frame, 5-minute stability, network-switch reconnect, transport label, and
+whether playback is application-scoped (no `VpnService` prompt).
+
 ---
 
 ### Phase 5 — Remote Acceptance Test
@@ -405,6 +439,56 @@ These questions must be answered by implementation experiments, not speculation.
 ## 8. Decision Log
 
 Append decisions here as experiments complete.
+
+### 2026-08-11 — Phase 4 Experiment A: HLS/fMP4 spike implemented with a getter-routed DataSource
+
+**Decision:** Implement Experiment A with every playback HTTP request routed
+through the embedded tsnet path via a generic transport primitive, keeping the
+media stack and the networking stack fully decoupled.
+
+**Design:**
+
+- `core/connectivity.HttpBytesGetter` / `HttpBytesResult` is the only media
+  transport API. Implementations never fall back to another network: the tsnet
+  getter (`core/frigate.TsnetHttpBytesGetter` -> `TsnetGateway.httpGetBytes` ->
+  `native/tailscale` -> Go `HttpGetBytes`) dials only through the tunnel, and
+  the local getter (`HttpUrlConnectionBytesGetter`) uses only the Android
+  network. `bytesGetterFor(transport, gateway)` constructs exactly one getter
+  per transport, so a TAILSCALE connection cannot accidentally reach the OS
+  network.
+- Go now exposes `HttpGetBytes` returning `HttpResult` (status, content type,
+  final URL, body) so binary HLS segments travel through the same path as the
+  manifest. `HttpResult` follows redirects and preserves the final URL, which
+  `HttpBytesDataSource.getUri()` reports to ExoPlayer so relative segment URLs
+  resolve against the real location.
+- `core/playback.HttpBytesDataSource` is a media3 `DataSource` that buffers the
+  whole GET response and serves it to ExoPlayer. Non-2xx responses are not
+  thrown: the status is available via `getResponseHeaders`/`open` behavior and
+  playback errors surface through ExoPlayer's `Player.Listener`.
+  **Limitation (documented):** whole-response buffering is only acceptable
+  because HLS requests are bounded (one playlist or one media segment per
+  request); it must not be used for progressive or long-lived streams.
+- `core/frigate.Go2RtcStreams` discovers the first go2rtc stream via
+  `GET /go2rtc/streams` using an order-preserving top-level-key parser (no JSON
+  dependency; `org.json` key order is unspecified) and builds
+  `/go2rtc/api/stream.m3u8?src={name}&mp4` (HLS/fMP4, preferred by ExoPlayer;
+  MPEG-TS is the fallback by dropping `&mp4`).
+- The app UI shows a live `PlayerView` with transport label and status; the
+  Android manifest enables `usesCleartextTraffic` because both the LAN and the
+  tailnet Frigate origins are plain HTTP (POC-only; production should use the
+  reverse-proxy/TLS guidance or Frigate TLS).
+
+**Validation:** `go vet`/`test`, `./gradlew test`, `:app:assembleDebug` and
+`lint` pass. Unit tests cover: the TAILSCALE selector never constructing the
+local getter, stream discovery parsing and empty/non-2xx handling, and the
+media3 factory wiring. Rebuilt AAR contains `httpGetBytes`/`HttpResult` for
+arm64 and x86_64.
+
+**Open items:** physical-device playback is unproven (time to first frame,
+5-minute stability, network-switch reconnect). go2rtc HLS is known to "differ
+from the standards and may not work with all players"; if ExoPlayer rejects the
+manifest, fall back to MPEG-TS HLS (drop `&mp4`), then go2rtc progressive
+`stream.mp4`, then Experiment B (`VpnService` + WebRTC).
 
 ### 2026-08-10 — Phase 2: transparent Frigate connection strategy implemented
 

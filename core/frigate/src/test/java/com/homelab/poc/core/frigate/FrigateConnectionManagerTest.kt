@@ -1,5 +1,6 @@
 package com.homelab.poc.core.frigate
 
+import com.homelab.poc.core.connectivity.HttpBytesResult
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
@@ -160,6 +161,9 @@ class FrigateConnectionManagerTest {
         }
 
         override suspend fun httpGet(url: String, timeoutMs: Long): String = "0.15.2"
+
+        override suspend fun httpGetBytes(url: String, timeoutMs: Long) =
+            HttpBytesResult(200, "application/json", url, "{}".toByteArray())
     }
 
     /** Returns a fixed result and counts how many times it was probed. */

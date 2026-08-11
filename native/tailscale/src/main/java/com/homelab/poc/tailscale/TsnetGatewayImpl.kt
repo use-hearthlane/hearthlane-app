@@ -74,6 +74,11 @@ class TsnetGatewayImpl(
             TailscaleBridge.httpGet(url, timeoutMs)
         }
 
+    override suspend fun httpGetBytes(url: String, timeoutMs: Long) =
+        withContext(Dispatchers.IO) {
+            TailscaleBridge.httpGetBytes(url, timeoutMs)
+        }
+
     private companion object {
         const val TAG = "FrigateConnection"
         const val POLL_INTERVAL_MS = 500L
