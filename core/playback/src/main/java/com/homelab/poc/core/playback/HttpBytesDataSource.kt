@@ -30,6 +30,7 @@ import java.io.IOException
 class HttpBytesDataSource(
     private val getter: HttpBytesGetter,
     private val timeoutMs: Long,
+    private val onBytes: (Long) -> Unit = {},
 ) : DataSource {
 
     private var result: HttpBytesResult? = null
@@ -56,6 +57,7 @@ class HttpBytesDataSource(
             throw IOException(message)
         }
         validatePayload(url, fetched)
+        onBytes(fetched.body.size.toLong())
         result = fetched
         uri = Uri.parse(fetched.finalUrl)
         val available = fetched.body.size.toLong() - dataSpec.position

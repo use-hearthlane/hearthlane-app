@@ -1,6 +1,7 @@
 package com.homelab.poc.core.playback
 
 import android.content.Context
+import android.os.SystemClock
 import android.util.Log
 import androidx.media3.common.MediaItem
 import androidx.media3.common.PlaybackException
@@ -12,6 +13,7 @@ import com.homelab.poc.core.connectivity.HttpBytesGetter
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
 
 /**
  * Owns the [ExoPlayer] instance and its HLS media source for the Phase 4
@@ -34,6 +36,13 @@ class LiveStreamPlayer(
     private val _state = MutableStateFlow<PlaybackStatus>(PlaybackStatus.Idle)
     val state: StateFlow<PlaybackStatus> = _state.asStateFlow()
 
+    private val _metrics = MutableStateFlow(PlayerMetrics())
+    val metrics: StateFlow<PlayerMetrics> = _metrics.asStateFlow()
+
+    // Wall-clock anchor for the time-to-first-frame measurement; reset on every
+    // play() so a recovered session reports its own T2FF.
+    private var preparedAtMs = 0L
+
     private val listener = object : Player.Listener {
         override fun onPlaybackStateChanged(playbackState: Int) {
             when (playbackState) {
@@ -51,6 +60,12 @@ class LiveStreamPlayer(
             }
         }
 
+        override fun onRenderedFirstFrame() {
+            val elapsed = SystemClock.elapsedRealtime() - preparedAtMs
+            Log.i(TAG, "first frame rendered ${elapsed}ms after play request")
+            _metrics.update { it.copy(firstFrameElapsedMs = elapsed) }
+        }
+
         override fun onPlayerError(error: PlaybackException) {
             // Include the parser/loader cause when present: for a malformed
             // manifest the top-level message is just "Source Error".
@@ -60,7 +75,8 @@ class LiveStreamPlayer(
                 error.message,
                 cause,
             ).distinct().joinToString(": ")
-            Log.e(TAG, "playback error: $message", error)
+            _metrics.update { it.copy(errorCount = it.errorCount + 1) }
+            Log.e(TAG, "playback error (count=${_metrics.value.errorCount}): $message", error)
             _state.value = PlaybackStatus.Error(message)
         }
     }
@@ -71,9 +87,11 @@ class LiveStreamPlayer(
 
     /** Starts (or replaces) HLS playback. Call [release] when the screen leaves. */
     fun play(hlsUrl: String) {
-        Log.i(TAG, "live playback starting for $hlsUrl via ${getter::class.simpleName}")
-        val source = HlsMediaSource.Factory(HttpBytesDataSourceFactory(getter, requestTimeoutMs))
-            .createMediaSource(MediaItem.fromUri(hlsUrl))
+        preparedAtMs = SystemClock.elapsedRealtime()
+        Log.i(TAG, "player preparing: $hlsUrl via ${getter::class.simpleName}")
+        val source = HlsMediaSource.Factory(
+            HttpBytesDataSourceFactory(getter, requestTimeoutMs, this::onBytesTransferred),
+        ).createMediaSource(MediaItem.fromUri(hlsUrl))
         // Clear any previous error: a fresh media source starts from IDLE and
         // would otherwise keep the last error visible forever.
         _state.value = PlaybackStatus.Loading
@@ -82,17 +100,32 @@ class LiveStreamPlayer(
         player.playWhenReady = true
     }
 
+    private fun onBytesTransferred(bytes: Long) {
+        _metrics.update { it.copy(bytesTransferred = it.bytesTransferred + bytes) }
+    }
+
     /**
-     * Stops fetching while the app is in the background (screen off): without
-     * this the HLS session would burn mobile data and the keepalive expires
-     * anyway.
+     * Releases the HLS media source so no further requests are made and no
+     * bytes flow. Used by the Stop control and when the app goes to the
+     * background (screen off): a `playWhenReady = false` would NOT stop the
+     * network activity, because media3 keeps refreshing the HLS playlist
+     * while the media source is loaded, which also keeps the go2rtc session
+     * alive. Playback is re-established on the next [play] with a fresh
+     * go2rtc session.
      */
-    fun pause() {
-        player.playWhenReady = false
+    fun stop() {
+        Log.i(TAG, "live playback stopped; media source released")
+        player.stop()
     }
 
     fun release() {
         player.removeListener(listener)
+        val m = _metrics.value
+        Log.i(
+            TAG,
+            "player released: first frame=${m.firstFrameElapsedMs?.let { "${it}ms" } ?: "not rendered"}, " +
+                "errors=${m.errorCount}, bytes transferred=${m.bytesTransferred}",
+        )
         player.release()
     }
 

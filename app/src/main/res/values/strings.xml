@@ -26,10 +26,9 @@
     <string name="live_view_stream_empty">Frigate reported no go2rtc streams. Configure a stream and reconnect.</string>
     <string name="live_view_starting">Starting live playback…</string>
     <string name="live_view_playing">Playing</string>
-    <string name="live_view_paused">Paused — the stream stays paused until you press Play</string>
     <string name="live_view_error">Playback error: %1$s</string>
     <string name="live_view_play">Play</string>
-    <string name="live_view_pause">Pause</string>
     <string name="live_view_stop">Stop</string>
+    <string name="live_view_metrics">Diagnostics: first frame %1$s, errors %2$d, bytes %3$d</string>
 </resources>
 

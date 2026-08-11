@@ -12,7 +12,9 @@ import com.homelab.poc.core.connectivity.HttpBytesGetter
 class HttpBytesDataSourceFactory(
     private val getter: HttpBytesGetter,
     private val timeoutMs: Long,
+    private val onBytes: (Long) -> Unit = {},
 ) : DataSource.Factory {
 
-    override fun createDataSource(): DataSource = HttpBytesDataSource(getter, timeoutMs)
+    override fun createDataSource(): DataSource =
+        HttpBytesDataSource(getter, timeoutMs, onBytes)
 }

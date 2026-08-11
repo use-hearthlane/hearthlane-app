@@ -2,7 +2,7 @@
 
 ## Status
 
-**Phase:** Phase 4 — Live Video Spike (implementation done; device validation pending)  
+**Phase:** Phase 4 — Live Video Spike (implementation + finalization done; device validation pending)  
 **Primary experiment:** Embedded Tailscale + remote Frigate live video on modern Android  
 **Scope:** Technical POC only
 
@@ -311,6 +311,106 @@ media3 `DataSource.Factory` wiring.
 frame, 5-minute stability, network-switch reconnect, transport label, and
 whether playback is application-scoped (no `VpnService` prompt).
 
+#### Phase 4 Finalization (2026-08-11)
+
+Implementation is complete and every code-level gate is green
+(`test`, `lint`, `assembleDebug`). The remaining work is device validation.
+
+##### Diagnostics for the acceptance measurements
+
+The app records the Phase 4/Phase 5 measurements with no new infrastructure
+(logcat + a UI line; no metrics backend):
+
+- **Time to first frame:** `LiveStreamPlayer` anchors a wall clock at `play()`
+  and logs `first frame rendered <N>ms after play request` when the first
+  frame is rendered; exposed as `PlayerMetrics.firstFrameElapsedMs`.
+- **Playback errors:** every `Player.Listener.onPlayerError` increments
+  `PlayerMetrics.errorCount` and includes the running count in the log line.
+- **Bytes transferred:** the HLS data source reports the body size of every
+  GET (playlists, init, media segments) through a callback, accumulated in
+  `PlayerMetrics.bytesTransferred`.
+- **Session summary:** `LiveStreamPlayer.release()` logs the final metrics
+  (first frame, errors, bytes), making each player instance's lifetime
+  auditable.
+- **Transport:** the probe logs `transport selected: LOCAL|TAILSCALE` and
+  `transport switched #N: X -> Y`; network events log
+  `network transition detected: onAvailable|onLost`.
+- **Player lifecycle:** `player created for transport=...` and
+  `player released (live view left or transport switched)` bracket every
+  player instance.
+- The `LiveView` shows a `Diagnostics:` line (first frame / errors / bytes)
+  under the video so the numbers can be read on screen during the tests.
+
+##### Lifecycle guarantees (verified by code review + unit tests)
+
+- **Player destruction:** `LiveView` releases the player in a
+  `DisposableEffect`, so leaving the live view (connection lost) or switching
+  transport tears the player down. The `PlayerView` re-binds via its `update`
+  lambda, so a recreated player never leaves a dead surface.
+- **Tailscale start/stop:** `FrigateConnectionManager` starts the node only
+  when the local probe fails, and the connection path stops it when a later
+  local connection wins. Unit tests assert that LOCAL never starts the node
+  and repeated LOCAL successes keep it stopped (no start/stop loops).
+- **Controlled error propagation:** transport failures surface as
+  `IOException` from `HttpBytesDataSource` (so ExoPlayer's retry policy
+  applies), discovery/probe failures surface as explicit UI errors, and
+  enrollment failures surface the login URL. The UI is Play/Stop only; there
+  is no Pause (see the "Pause does not stop media3 network activity" decision
+  log entry).
+- **Request lifecycle:** every HLS GET is bounded by the request timeout, the
+  whole-response buffer is released on `DataSource.close()`, and releasing
+  ExoPlayer cancels in-flight loaders.
+
+##### Streaming bridge (documented)
+
+The media path is a request/response bridge, not a streaming API:
+
+```text
+ExoPlayer -> HttpBytesDataSource (media3 DataSource)
+  -> HttpBytesGetter (core/connectivity)
+    -> TsnetHttpBytesGetter / HttpUrlConnectionBytesGetter (core/frigate)
+      -> TsnetGateway.httpGetBytes (native/tailscale)
+        -> Go HttpGetBytes (gomobile) -> netstack TCP dial through the tunnel
+```
+
+- Every request buffers its full body in memory before being handed to
+  ExoPlayer. This is only acceptable because each HLS request is bounded: one
+  playlist, one init, or one media segment (tens of KB to a few MB). It must
+  not be used for progressive or long-lived streams. That limitation is
+  documented and `core/playback` is the swap boundary if another transport is
+  needed later.
+- Redirects are followed inside the Go bridge and the final URL is reported
+  (`HttpBytesResult.finalUrl`), so relative HLS segment references resolve
+  correctly through `DataSource.getUri()`.
+- The TAILSCALE getter can only dial through the tunnel (netstack TCP via the
+  tailnet/subnet route, split-DNS resolved via the tailnet resolver); the
+  LOCAL getter uses only the Android network. Neither path can fall back to
+  the other.
+
+##### Physical acceptance checklist
+
+Run on a physical Android device with the official Tailscale app disabled:
+
+- **TEST A — Home LAN (LOCAL):** on home Wi-Fi, the transport shows LOCAL,
+  the node stays stopped, and playback stays up for 5 minutes. Read time to
+  first frame from the `first frame rendered` log.
+- **TEST B — Outside the home LAN (TAILSCALE):** on mobile data or unrelated
+  Wi-Fi, the transport shows TAILSCALE; measure connect time, time to first
+  frame, and 5-minute stability.
+- **TEST C — Network switch:** drop home Wi-Fi during playback and confirm the
+  `network transition detected` and `transport switched` logs, video recovery,
+  and the diagnostics line; then switch back.
+- **TEST D — Stop and lock/unlock:** press Stop (the media source is
+  released; bytes must stop) and Play to re-establish a fresh session; lock
+  and unlock the screen and confirm the stream re-establishes on unlock and
+  that no bytes flow while the screen is off.
+- **TEST E — Process and identity:** kill and relaunch the app; the node
+  identity must survive (no re-enrollment). Only an invalidated identity
+  should require re-enrollment via the login URL.
+
+Record the Phase 5 template (device, Android version, network, times,
+stability, issues) for each test.
+
 ---
 
 ### Phase 5 — Remote Acceptance Test
@@ -440,6 +540,67 @@ These questions must be answered by implementation experiments, not speculation.
 ## 8. Decision Log
 
 Append decisions here as experiments complete.
+
+### 2026-08-11 — Pause does not stop media3 network activity; the UI is now Play/Stop only
+
+**Symptom (device test):** pressing Pause during live playback kept the
+`Diagnostics: bytes` counter increasing, while Stop stopped it immediately.
+
+**Root cause:** the Pause button called `player.player.pause()`, which only
+sets `playWhenReady = false`. In media3 that does NOT release the HLS media
+source: the playlist tracker keeps polling the m3u8 while the period is
+loaded, and go2rtc keeps its HLS session alive as long as requests keep
+arriving, so segments keep being produced (and possibly fetched until the
+load-control target buffer is reached). Stop (`player.stop()`, `STATE_IDLE`)
+releases the media source and cancels the loaders, which is why it stopped
+the bytes. This also invalidated the earlier assumption that "pause stops
+ExoPlayer's playlist fetches so the go2rtc session dies on its ~5s
+keepalive": while paused the session stayed alive, and the same applied to
+the `ON_STOP` screen-off path (`LiveStreamPlayer.pause()`), which therefore
+could still burn mobile data in the background.
+
+**Decision:**
+
+- The UI is now Play/Stop only; the Pause button and the `userPaused` flag
+  were removed. Play always re-discovers a fresh go2rtc session, Stop
+  releases the media source.
+- `LiveStreamPlayer.pause()` was replaced by `LiveStreamPlayer.stop()`
+  (`player.stop()`), used by both the Stop button and the `ON_STOP`
+  screen-off path, so no bytes flow while the screen is off. A fresh session
+  is created on resume (`resumeTick`) as before.
+
+**Validation:** `./gradlew test lint :app:assembleDebug` green. On-device
+verification must confirm: Stop freezes the bytes counter, Play restores
+video, and the screen-off path no longer consumes data.
+
+### 2026-08-11 — Phase 4 finalization: on-device diagnostics and acceptance checklist
+
+**Context:** The POC code (transport, discovery, playback, recovery) is
+complete and all code-level gates are green, but the Phase 4 exit condition
+(live video on a physical device) and the Phase 5 acceptance measurements
+(time to first frame, 5-minute stability, network-switch reconnect) still
+need on-device evidence.
+
+**Decision:** Add measurement support without new infrastructure, and pin the
+device procedure in `PLAN.md`:
+
+- `core/playback` exposes `PlayerMetrics` (time to first frame, error count,
+  bytes transferred) with log lines for `first frame rendered`, the running
+  error count, and a per-session summary on `release()`. The bytes counter is
+  fed by the HLS data source via a callback threaded through
+  `HttpBytesDataSourceFactory`.
+- The app logs `transport selected`/`transport switched`, network
+  transitions, and player create/release, and shows a `Diagnostics:` line in
+  the live view.
+- `PLAN.md` now contains the "Phase 4 Finalization" section: the streaming
+  bridge documentation (whole-response GETs through the Go bridge and why it
+  is acceptable for HLS), the lifecycle guarantees (player teardown,
+  Tailscale start/stop, controlled error propagation), and the physical
+  acceptance checklist TEST A–E (home LAN, outside home, network switch,
+  pause/lock-unlock, process/identity).
+
+**Validation:** `./gradlew test lint :app:assembleDebug` green. On-device
+validation pending per TEST A–E.
 
 ### 2026-08-11 — Pause must be user intent and transport switches must rebind the player surface
 

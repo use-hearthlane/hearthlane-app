@@ -28,6 +28,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -78,6 +79,10 @@ fun HomeScreen(hostname: String, stateDir: String, frigateConfig: FrigateConfig)
     var baseUrl by rememberSaveable { mutableStateOf(frigateConfig.localBaseUrl) }
     var connection by remember { mutableStateOf<FrigateConnection?>(null) }
     var connecting by remember { mutableStateOf(false) }
+    // Last transport reported by a successful probe and how many times it
+    // switched; used to trace network-driven migration on-device (logcat).
+    var lastProbedTransport by remember { mutableStateOf<TransportKind?>(null) }
+    var transportSwitchCount by remember { mutableStateOf(0) }
     // Bumped only by an explicit connect request (initial load, Connect button).
     // Forces the live view to re-establish playback even when the transport is
     // unchanged.
@@ -108,6 +113,17 @@ fun HomeScreen(hostname: String, stateDir: String, frigateConfig: FrigateConfig)
                 tailscaleGateway = gateway,
             )
             val result = withContext(Dispatchers.IO) { manager.connect() }
+            if (result is FrigateConnection.Connected) {
+                val previous = lastProbedTransport
+                val switched = previous != null && previous != result.transport
+                if (switched) {
+                    transportSwitchCount++
+                    Log.i(TAG, "transport switched #$transportSwitchCount: $previous -> ${result.transport}")
+                } else if (previous == null) {
+                    Log.i(TAG, "transport selected: ${result.transport}")
+                }
+                lastProbedTransport = result.transport
+            }
             connection = result
             connecting = false
             if (restartPlayback) connectAttempt++ else networkTick++
@@ -126,6 +142,7 @@ fun HomeScreen(hostname: String, stateDir: String, frigateConfig: FrigateConfig)
         var probeJob: Job? = null
         val callback = object : ConnectivityManager.NetworkCallback() {
             override fun onAvailable(network: Network) {
+                Log.i(TAG, "network transition detected: onAvailable")
                 probeJob?.cancel()
                 probeJob = scope.launch {
                     delay(NETWORK_SETTLE_MS)
@@ -133,6 +150,7 @@ fun HomeScreen(hostname: String, stateDir: String, frigateConfig: FrigateConfig)
                 }
             }
             override fun onLost(network: Network) {
+                Log.i(TAG, "network transition detected: onLost")
                 probeJob?.cancel()
                 probeJob = scope.launch {
                     delay(NETWORK_SETTLE_MS)
@@ -306,7 +324,10 @@ private fun LiveView(
     // Keyed by transport: the getter is transport-specific, so a network-driven
     // transport switch must rebuild the player on the new getter instead of
     // continuing on the dead one.
-    val player = remember(transport, gateway) { LiveStreamPlayer(context.applicationContext, getter) }
+    val player = remember(transport, gateway) {
+        Log.i(TAG, "player created for transport=$transport")
+        LiveStreamPlayer(context.applicationContext, getter)
+    }
     val scope = rememberCoroutineScope()
 
     val streamEmptyMessage = stringResource(R.string.live_view_stream_empty)
@@ -314,12 +335,8 @@ private fun LiveView(
     var streamUrl by remember { mutableStateOf<String?>(null) }
     var discoveryError by remember { mutableStateOf<String?>(null) }
     var playbackStatus by remember { mutableStateOf<PlaybackStatus>(PlaybackStatus.Idle) }
+    val metrics by player.metrics.collectAsState()
     var resumeTick by remember { mutableStateOf(0) }
-    // The user explicitly paused via the Pause button. Auto-triggers (unlock,
-    // network switch, session recovery) must never restart playback while this
-    // is set; only the Play button clears it. The lifecycle pause on ON_STOP is
-    // separate and never sets this flag, so unlocking resumes playback.
-    var userPaused by remember { mutableStateOf(false) }
     // Bounds automatic session recovery so a truly dead stream cannot loop
     // forever. A discovery is never silently dropped: the latest request
     // cancels and supersedes any in-flight one.
@@ -329,17 +346,20 @@ private fun LiveView(
     var playingSince by remember { mutableStateOf<Long?>(null) }
 
     DisposableEffect(player) {
-        onDispose { player.release() }
+        onDispose {
+            Log.i(TAG, "player released (live view left or transport switched)")
+            player.release()
+        }
     }
 
-    // Pause fetching while the screen is off and re-establish playback on
-    // resume. The go2rtc HLS session dies on its ~5s keepalive, so unlocking
-    // must refresh the media playlist URL (new session) unless the player is
-    // still prepared.
+    // Release the media source while the screen is off so no bytes flow in
+    // the background, and re-establish playback on resume. A fresh go2rtc
+    // session is always created on resume because a stale session dies on its
+    // ~5s keepalive once nothing consumes it.
     DisposableEffect(lifecycleOwner, player) {
         val observer = LifecycleEventObserver { _, event ->
             when (event) {
-                Lifecycle.Event.ON_STOP -> player.pause()
+                Lifecycle.Event.ON_STOP -> player.stop()
                 Lifecycle.Event.ON_RESUME -> resumeTick++
                 else -> Unit
             }
@@ -388,8 +408,7 @@ private fun LiveView(
     // ~5s keepalive, so a resume cannot trust the stale media playlist URL and
     // always needs a fresh session. networkTick only fires after a network
     // re-probe, so a healthy session is left alone (it churns on cellular
-    // handovers); only a dead one is recovered. A paused user is never
-    // restarted.
+    // handovers); only a dead one is recovered.
     var lastTransport by remember { mutableStateOf<TransportKind?>(null) }
     var lastResumeTick by remember { mutableStateOf(0) }
     var lastConnectAttempt by remember { mutableStateOf(0) }
@@ -400,7 +419,6 @@ private fun LiveView(
         lastTransport = transport
         lastResumeTick = resumeTick
         lastConnectAttempt = connectAttempt
-        if (userPaused) return@LaunchedEffect
         val dead = playbackStatus is PlaybackStatus.Error ||
             player.player.playbackState == Player.STATE_IDLE
         if (transportChanged || resumeChanged || connectChanged || dead) {
@@ -412,17 +430,14 @@ private fun LiveView(
         player.state.collectLatest { playbackStatus = it }
     }
 
-    // Auto-recovery for mid-playback failures only: an error surfaced while
-    // the user has paused is expected (the session dies on its ~5s keepalive
-    // and a playlist refresh 404s), so it must never restart the video by
-    // itself. The budget renews only after a session played stably, otherwise
-    // a flapping stream stops retrying after MAX_AUTO_RECOVERY and surfaces
-    // its error.
+    // Auto-recovery for mid-playback failures only. The budget renews only
+    // after a session played stably, otherwise a flapping stream stops
+    // retrying after MAX_AUTO_RECOVERY and surfaces its error.
     LaunchedEffect(playbackStatus, streamUrl) {
         when (val status = playbackStatus) {
             is PlaybackStatus.Playing -> playingSince = SystemClock.elapsedRealtime()
             is PlaybackStatus.Error ->
-                if (streamUrl != null && !userPaused) {
+                if (streamUrl != null) {
                     val stable = playingSince?.let { SystemClock.elapsedRealtime() - it } ?: Long.MAX_VALUE
                     if (stable > STABLE_PLAY_MS) autoRecovery = 0
                     if (autoRecovery < MAX_AUTO_RECOVERY) {
@@ -458,9 +473,8 @@ private fun LiveView(
             url != null -> AndroidView(
                 factory = { ctx ->
                     PlayerView(ctx).apply {
-                        // The controller is disabled: a paused live view must
-                        // stay paused until the user presses the app's Play
-                        // button (see LiveView's userPaused), and auto-recovery
+                        // The controller is disabled: playback is controlled
+                        // through the app's Play/Stop buttons, and auto-recovery
                         // owns mid-playback failures.
                         useController = false
                         setShowBuffering(PlayerView.SHOW_BUFFERING_WHEN_PLAYING)
@@ -481,15 +495,7 @@ private fun LiveView(
 
         Spacer(Modifier.height(8.dp))
         val status = playbackStatus
-        // While paused a session-expiry error is expected (the go2rtc session
-        // dies on its ~5s keepalive); showing it would look like a failure.
-        // The session is re-established on resume instead.
-        if (userPaused) {
-            Text(
-                text = stringResource(R.string.live_view_paused),
-                style = MaterialTheme.typography.bodyMedium,
-            )
-        } else if (status is PlaybackStatus.Error) {
+        if (status is PlaybackStatus.Error) {
             CopyableError(
                 text = status.message,
                 styledText = stringResource(R.string.live_view_error, status.message),
@@ -501,28 +507,28 @@ private fun LiveView(
             )
         }
         if (url != null) {
+            Text(
+                text = stringResource(
+                    R.string.live_view_metrics,
+                    metrics.firstFrameElapsedMs?.let { "$it ms" } ?: "n/a",
+                    metrics.errorCount,
+                    metrics.bytesTransferred,
+                ),
+                style = MaterialTheme.typography.bodySmall,
+            )
             Row(
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 val idle = player.player.playbackState == Player.STATE_IDLE
-                if (idle || userPaused) {
-                    Button(onClick = {
-                        userPaused = false
-                        discoverAndPlay()
-                    }) {
+                if (idle) {
+                    Button(onClick = { discoverAndPlay() }) {
                         Text(stringResource(R.string.live_view_play))
                     }
                 } else {
-                    Button(onClick = {
-                        player.player.pause()
-                        userPaused = true
-                    }) {
-                        Text(stringResource(R.string.live_view_pause))
+                    Button(onClick = { player.stop() }) {
+                        Text(stringResource(R.string.live_view_stop))
                     }
-                }
-                TextButton(onClick = { player.player.stop() }) {
-                    Text(stringResource(R.string.live_view_stop))
                 }
             }
         }
