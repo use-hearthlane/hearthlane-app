@@ -37,15 +37,27 @@ val goAar = layout.buildDirectory.file("tsembed.aar")
 val explodedDir = layout.buildDirectory.dir("tsembed-exploded")
 val goClassesJar = explodedDir.map { it.file("classes.jar") }
 
+// The Phase 1 netlinkrib fix (docs/TOOLCHAIN_PATCH.md) is required to run tsnet
+// on Android 11+. The isolated patched toolchain at <repo>/go-patched is used
+// by default when present so the standard `./gradlew assembleDebug` produces a
+// device-working APK. An explicit -PgoToolchainRoot still wins; builds without a
+// patched toolchain fall back to the standard Go toolchain (CI-safe, but
+// tsnet.Start() will fail with `netlinkrib: permission denied` on Android 11+
+// devices).
+val defaultPatchedGo = rootProject.layout.projectDirectory.dir("go-patched").asFile
+val resolvedGoToolchain = providers.gradleProperty("goToolchainRoot").orNull
+    ?: defaultPatchedGo.resolve("bin/go").takeIf { it.exists() }?.let { defaultPatchedGo.absolutePath }
+    ?: ""
+
 val goBind by tasks.registering(Exec::class) {
     group = "build"
     description = "Builds the Tailscale embedded AAR from Go via gomobile."
     workingDir = file("go")
     commandLine("bash", "build-android.sh")
     inputs.dir(layout.projectDirectory.dir("go"))
-    inputs.property("goToolchainRoot", providers.gradleProperty("goToolchainRoot").orNull ?: "default")
+    inputs.property("goToolchainRoot", resolvedGoToolchain.ifBlank { "default" })
     outputs.file(goAar)
-    providers.gradleProperty("goToolchainRoot").orNull?.let { root ->
+    resolvedGoToolchain.takeIf { it.isNotBlank() }?.let { root ->
         environment("PATCHED_GOROOT", root)
     }
 }

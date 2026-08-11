@@ -33,6 +33,7 @@ class TailscaleTransport(
             FrigateTransportResult.Failure(
                 error = "Tailscale requires authentication",
                 authUrl = e.authUrl,
+                authRequired = true,
             )
         } catch (e: Exception) {
             Log.w(TAG, "Frigate probe via Tailscale failed: ${e.message}")

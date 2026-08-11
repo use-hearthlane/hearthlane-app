@@ -13,6 +13,8 @@
     <string name="transport_tailscale">TAILSCALE</string>
     <string name="frigate_version_value">Frigate version: %1$s</string>
     <string name="auth_url_hint">This device needs enrollment. Open this URL in a browser while signed in to the tailnet admin:</string>
+    <string name="auth_url_pending_hint">The enrollment URL is not available yet. Wait a moment and tap Retry, or read it from logcat (tsembed login required).</string>
+    <string name="open_auth_url_button">Open login URL</string>
     <string name="error_label">Error</string>
     <string name="copy_error_button">Copy error</string>
     <string name="connect_button">Connect to Frigate</string>
@@ -24,7 +26,10 @@
     <string name="live_view_stream_empty">Frigate reported no go2rtc streams. Configure a stream and reconnect.</string>
     <string name="live_view_starting">Starting live playback…</string>
     <string name="live_view_playing">Playing</string>
+    <string name="live_view_paused">Paused — the stream stays paused until you press Play</string>
     <string name="live_view_error">Playback error: %1$s</string>
+    <string name="live_view_play">Play</string>
+    <string name="live_view_pause">Pause</string>
     <string name="live_view_stop">Stop</string>
 </resources>
 

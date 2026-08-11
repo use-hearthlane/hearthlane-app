@@ -110,6 +110,7 @@ class FrigateConnectionManagerTest {
                 FrigateTransportResult.Failure(
                     error = "Tailscale requires authentication",
                     authUrl = "https://login.tailscale.com/a/example",
+                    authRequired = true,
                 ),
             ),
             tailscaleGateway = gateway,
@@ -120,6 +121,7 @@ class FrigateConnectionManagerTest {
         assertTrue(result is FrigateConnection.Failed)
         val failed = result as FrigateConnection.Failed
         assertEquals("https://login.tailscale.com/a/example", failed.authUrl)
+        assertEquals("enrollment must be flagged on the result", true, failed.authRequired)
         assertEquals("nothing must be stopped when the fallback itself failed", 0, gateway.stopCalls)
     }
 

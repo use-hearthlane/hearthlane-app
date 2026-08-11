@@ -35,6 +35,7 @@ class TsnetGatewayImpl(
         }
 
         val deadline = SystemClock.elapsedRealtime() + connectTimeoutMs
+        var sawAuth = false
         while (SystemClock.elapsedRealtime() < deadline) {
             status = TailscaleBridge.status()
             when (status.state) {
@@ -43,8 +44,16 @@ class TsnetGatewayImpl(
                     return
                 }
                 ConnectivityState.AUTHENTICATING -> {
-                    Log.i(TAG, "Tailscale requires authentication")
-                    throw TailscaleAuthRequired(status.authUrl)
+                    sawAuth = true
+                    // The enrollment URL is published asynchronously by the
+                    // node's interactive login flow: the first AUTHENTICATING
+                    // poll can see the state before the URL is available. Keep
+                    // polling so the UI can show the login link instead of a
+                    // bare error with nothing to act on.
+                    status.authUrl?.takeIf { it.isNotBlank() }?.let { url ->
+                        Log.i(TAG, "Tailscale requires authentication: $url")
+                        throw TailscaleAuthRequired(url)
+                    }
                 }
                 ConnectivityState.FAILED ->
                     throw IOException("tailscale failed: ${status.error ?: "unknown error"}")
@@ -53,6 +62,12 @@ class TsnetGatewayImpl(
                 }
             }
             delay(POLL_INTERVAL_MS)
+        }
+        if (sawAuth) {
+            // The node needs enrollment but never exposed a URL before the
+            // deadline. Fail as auth-required so the UI explains what to do;
+            // tsnet also prints the URL to logcat.
+            throw TailscaleAuthRequired(null)
         }
         throw IOException("tailscale did not reach Running within ${connectTimeoutMs}ms")
     }

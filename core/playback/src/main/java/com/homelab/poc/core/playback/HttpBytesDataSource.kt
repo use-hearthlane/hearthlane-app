@@ -46,6 +46,16 @@ class HttpBytesDataSource(
     override fun open(dataSpec: DataSpec): Long {
         val url = dataSpec.uri.toString()
         val fetched = runBlocking { getter.getBytes(url, timeoutMs) }
+        if (fetched.statusCode !in 200..299) {
+            // go2rtc serves init/segments with 404 while its session buffer is
+            // empty (camera cold start); ExoPlayer treats a 4xx thrown through
+            // HttpDataSource as non-retriable, so surface it as a plain
+            // IOException to keep ExoPlayer's own retry policy (transient).
+            val message = "HttpBytesDataSource: GET $url -> HTTP ${fetched.statusCode}"
+            Log.e(TAG, message)
+            throw IOException(message)
+        }
+        validatePayload(url, fetched)
         result = fetched
         uri = Uri.parse(fetched.finalUrl)
         val available = fetched.body.size.toLong() - dataSpec.position
@@ -93,7 +103,44 @@ class HttpBytesDataSource(
         closed = true
     }
 
-    private companion object {
-        const val TAG = "PocCamera"
+    companion object {
+        private const val TAG = "PocCamera"
+
+        /**
+         * Rejects 2xx responses whose payload does not match what the URL
+         * requests. go2rtc answers the HLS master request with HTTP 200 and an
+         * empty body when it cannot attach a consumer; a strict parser would
+         * surface that as an opaque PARSING_MANIFEST_MALFORMED error. Failing
+         * the load as an [IOException] instead lets ExoPlayer retry transient
+         * failures and keeps the real response visible in the playback error.
+         *
+         * Kept static (no [android.net.Uri] dependency) so JVM unit tests can
+         * exercise it directly.
+         */
+        fun validatePayload(url: String, fetched: HttpBytesResult) {
+            val bodyPreview = fetched.body.toString(Charsets.UTF_8).take(200)
+            if (url.contains("m3u8")) {
+                if (!bodyPreview.startsWith("#EXTM3U")) {
+                    val message =
+                        "HLS manifest is not an m3u8 playlist (HTTP ${fetched.statusCode}, " +
+                            "type=${fetched.contentType}): \"$bodyPreview\""
+                    Log.e(TAG, message)
+                    throw IOException(message)
+                }
+            } else if (fetched.body.isEmpty() &&
+                (url.contains("init.mp4") ||
+                    url.contains("segment.m4s") ||
+                    url.contains("segment.ts"))
+            ) {
+                // go2rtc serves init/segments with 404 while its session buffer
+                // is empty, never with a 2xx empty body; an empty 2xx here
+                // means a proxy or a misrouted request swallowed the payload.
+                val message =
+                    "HLS media payload is empty (HTTP ${fetched.statusCode}, " +
+                        "type=${fetched.contentType}) for $url"
+                Log.e(TAG, message)
+                throw IOException(message)
+            }
+        }
     }
 }

@@ -13,6 +13,9 @@ sealed interface FrigateTransportResult {
         val error: String,
         /** Present only when the failure is a pending Tailscale enrollment. */
         val authUrl: String? = null,
+        /** True when the failure is a pending Tailscale enrollment (the URL
+         *  may still be unavailable if the login flow has not published it). */
+        val authRequired: Boolean = false,
     ) : FrigateTransportResult
 }
 

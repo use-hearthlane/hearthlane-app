@@ -37,7 +37,14 @@ class LiveStreamPlayer(
     private val listener = object : Player.Listener {
         override fun onPlaybackStateChanged(playbackState: Int) {
             when (playbackState) {
-                Player.STATE_IDLE -> _state.value = PlaybackStatus.Idle
+                Player.STATE_IDLE -> {
+                    // ExoPlayer drops to IDLE right after onPlayerError; keep
+                    // the error visible so the UI does not bounce back to
+                    // "starting". A later play() call resets the state.
+                    if (_state.value !is PlaybackStatus.Error) {
+                        _state.value = PlaybackStatus.Idle
+                    }
+                }
                 Player.STATE_BUFFERING -> _state.value = PlaybackStatus.Loading
                 Player.STATE_READY -> _state.value = PlaybackStatus.Playing
                 Player.STATE_ENDED -> Log.i(TAG, "live playback ended")
@@ -45,10 +52,16 @@ class LiveStreamPlayer(
         }
 
         override fun onPlayerError(error: PlaybackException) {
-            Log.e(TAG, "playback error: ${error.errorCodeName}", error)
-            _state.value = PlaybackStatus.Error(
-                error.errorCodeName + ": " + (error.message ?: "unknown error"),
-            )
+            // Include the parser/loader cause when present: for a malformed
+            // manifest the top-level message is just "Source Error".
+            val cause = error.cause?.message?.takeIf { it.isNotBlank() }
+            val message = listOfNotNull(
+                error.errorCodeName,
+                error.message,
+                cause,
+            ).distinct().joinToString(": ")
+            Log.e(TAG, "playback error: $message", error)
+            _state.value = PlaybackStatus.Error(message)
         }
     }
 
@@ -61,10 +74,21 @@ class LiveStreamPlayer(
         Log.i(TAG, "live playback starting for $hlsUrl via ${getter::class.simpleName}")
         val source = HlsMediaSource.Factory(HttpBytesDataSourceFactory(getter, requestTimeoutMs))
             .createMediaSource(MediaItem.fromUri(hlsUrl))
+        // Clear any previous error: a fresh media source starts from IDLE and
+        // would otherwise keep the last error visible forever.
         _state.value = PlaybackStatus.Loading
         player.setMediaSource(source)
         player.prepare()
         player.playWhenReady = true
+    }
+
+    /**
+     * Stops fetching while the app is in the background (screen off): without
+     * this the HLS session would burn mobile data and the keepalive expires
+     * anyway.
+     */
+    fun pause() {
+        player.playWhenReady = false
     }
 
     fun release() {

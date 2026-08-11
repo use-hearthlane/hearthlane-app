@@ -59,7 +59,11 @@ class FrigateConnectionManager(
             }
             is FrigateTransportResult.Failure -> {
                 Log.i(TAG, "connection failed: ${remote.error}")
-                FrigateConnection.Failed(error = remote.error, authUrl = remote.authUrl)
+                FrigateConnection.Failed(
+                    error = remote.error,
+                    authUrl = remote.authUrl,
+                    authRequired = remote.authRequired,
+                )
             }
         }
     }

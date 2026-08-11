@@ -10,12 +10,12 @@ and decision log.
 
 ## Status
 
-Phase 2 — Transparent Frigate Connectivity. The app probes Frigate
-(`GET /api/version`) over the home LAN first (2 s timeout) and falls back to
-the embedded Tailscale network when the local attempt fails. Phase 1 validated
-the embedded tsnet node on a physical Android device via an isolated patched Go
-toolchain (netlinkrib fix) plus the `TS_LOGS_DIR` fix; see
-`docs/TOOLCHAIN_PATCH.md` and the PLAN.md decision log.
+Phase 4 — Live Video Spike. The app probes Frigate over the home LAN first and
+falls back to the embedded Tailscale network when the local attempt fails, then
+plays one go2rtc HLS/fMP4 camera stream with ExoPlayer over the chosen
+transport. On-device validation: remote connectivity, stream discovery, live
+playback, lock/unlock resume and network-switch reconnect (see the PLAN.md
+decision log). Phases 1-3 are documented there as well.
 
 ## Prerequisites
 
@@ -56,16 +56,21 @@ go test ./...
 go vet ./...
 ```
 
-### netlinkrib experiment (optional)
+### netlinkrib fix (Android 11+, applied by default when available)
 
-To build the APK with the isolated patched Go toolchain (Android 11+ stdlib
-netlink fallback, see `docs/TOOLCHAIN_PATCH.md`):
+`tsnet.Start()` needs the CL 507415 stdlib fallback on Android 11+ (the Go
+stdlib netlink path is denied by SELinux; see `docs/TOOLCHAIN_PATCH.md`). The
+repo's isolated patched Go toolchain at `go-patched/` is used automatically when
+present, so the standard `./gradlew assembleDebug` produces a device-working
+APK. To point at a different patched toolchain:
 
 ```text
-./gradlew -PgoToolchainRoot=/workspace/go-patched :app:assembleDebug
+./gradlew -PgoToolchainRoot=/path/to/toolchain :app:assembleDebug
 ```
 
-The normal build never uses the patched toolchain implicitly.
+Without a patched toolchain the build falls back to the standard Go toolchain:
+compilation succeeds, but `tsnet.Start()` fails on a physical Android 11+
+device with `netlinkrib: permission denied`.
 
 The debug APK is produced at `app/build/outputs/apk/debug/app-debug.apk`.
 

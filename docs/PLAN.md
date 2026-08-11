@@ -289,9 +289,10 @@ validation is pending.
   requests exclusively through the tsnet path.
 - `core/frigate` selects the getter per transport (`bytesGetterFor`:
   `HttpUrlConnectionBytesGetter` for LOCAL, `TsnetHttpBytesGetter` for
-  TAILSCALE) and resolves the first go2rtc stream (`GET /go2rtc/streams`,
+  TAILSCALE) and resolves the first go2rtc stream (`GET /api/go2rtc/streams`,
   order-preserving JSON key parser, no JSON dependency) plus the HLS URL
-  `/go2rtc/api/stream.m3u8?src={name}&mp4`.
+  `/api/go2rtc/api/stream.m3u8?src={name}&mp4`. The `/api/go2rtc/` prefix is
+  required on Frigate 0.17.1; `/go2rtc/...` is caught by the web UI SPA.
 - `core/playback` owns ExoPlayer: `HttpBytesDataSource` (media3 `DataSource`
   that runs every GET through the injected getter and serves the buffered
   body) + `HlsMediaSource.Factory` + `LiveStreamPlayer` exposing a
@@ -439,6 +440,245 @@ These questions must be answered by implementation experiments, not speculation.
 ## 8. Decision Log
 
 Append decisions here as experiments complete.
+
+### 2026-08-11 — Pause must be user intent and transport switches must rebind the player surface
+
+**Context:** The second on-device validation round (cellular, Wi-Fi, and
+Wi-Fi/cellular switches) exposed two remaining failures:
+
+1. **Paused video restarted by itself on both networks, and mobile playback
+   recycled HLS sessions.** The `ConnectivityManager` re-probe on every network
+   event bumped `connectAttempt`, and the live view re-discovered and called
+   `play()` (which forces `playWhenReady=true`) on every bump. Cellular
+   handovers fire `onLost`/`onAvailable` frequently, so mobile playback
+   restarted constantly; a paused video was restarted by the same path.
+   Disabling auto-recovery while paused was not enough: the real restart source
+   was the network-driven re-discovery.
+2. **After any transport switch (Wi-Fi → Tailscale → Wi-Fi) the video went
+   black and never recovered, even across stop/reconnect.** The player is
+   recreated with `remember(transport, gateway)` when the network path changes,
+   but the `PlayerView` AndroidView had no `update` lambda: its `factory`
+   bound the view once to the original player, which was released on the
+   switch. The view stayed bound to a dead player forever.
+
+**Decision:** `HomeScreen.LiveView` was reworked around explicit user intent and
+network-path identity:
+
+- **App-owned controls:** the ExoPlayer controller is disabled
+  (`useController=false`). `userPaused` records a real user pause via the app's
+  Pause button and is only cleared by its Play button. Every auto-trigger
+  (screen unlock, network switch, session recovery, re-probe) is gated on
+  `!userPaused`, so a paused video stays paused until the user commands Play.
+  The lifecycle pause on `ON_STOP` never sets `userPaused`, so unlocking still
+  resumes playback.
+- **Network re-probe no longer restarts healthy playback:** `connect()` takes a
+  `restartPlayback` flag. The network callback probes with `false` and bumps a
+  new `networkTick`; the live view uses `networkTick` only to recover a dead
+  session (`PlaybackStatus.Error` or `STATE_IDLE`), never to restart a healthy
+  one. The manual Connect button and the initial load keep `connectAttempt`
+  (force restart). A 1s settle delay coalesces the `onLost`/`onAvailable`
+  bursts around a switch.
+- **Player surface rebinding:** the AndroidView gains an `update` lambda
+  (`view.player = player.player`), so a transport switch that recreates the
+  player re-binds the view to the live player instead of a released one.
+- The `playWhenReady` flow was removed from `LiveStreamPlayer` (now unused).
+
+**Validation:** `./gradlew test lint :app:assembleDebug` green; APK contains the
+`net.interfaceTableAndroid` symbol. On-device verification must confirm: paused
+video stays paused across network switches and lock/unlock until Play is
+pressed; mobile playback stops recycling on handovers; Wi-Fi → Tailscale →
+Wi-Fi switches recover the video; stop/reconnect restores playback after a
+switch.
+
+### 2026-08-11 — Recovery must be pause-safe and resume-driven (supersedes the first auto-recovery entry)
+
+**Context:** The first auto-recovery design restarted the video on every player
+error. On-device use showed this was wrong in two ways:
+
+1. Pausing stops ExoPlayer's playlist fetches, so the go2rtc session dies on its
+   ~5s keepalive and the paused playlist refresh 404s. The auto-recovery treated
+   that expected expiry as a mid-playback failure and restarted the video while
+   the user had it paused ("se dou pause, o vídeo volta sozinho", "a cada N
+   minutos o vídeo reinicia").
+2. A `discovering` boolean that silently skipped overlapping discoveries could
+   swallow the unlock/network re-discovery when a background recovery attempt was
+   in flight, leaving a black player screen after unlocking.
+
+**Decision:** `HomeScreen.LiveView` now splits the two concerns:
+
+- **Pause-safe auto-recovery:** the recovery effect only fires when
+  `playWhenReady` is true; an error surfaced while paused is expected session
+  expiry and is never auto-restarted (the UI shows a "Paused" label instead of
+  an error). The budget (`MAX_AUTO_RECOVERY` = 2) renews only after a session
+  played stably for `STABLE_PLAY_MS` (10s), so a flapping stream stops retrying
+  and surfaces its error while repeated pause/resume cycles always recover.
+- **Resume-driven re-establishment:** a `LaunchedEffect` observing the player's
+  `playWhenReady` flow re-discovers a fresh session when a manual resume meets a
+  dead session (`PlaybackStatus.Error` or `Player.STATE_IDLE`); a READY session
+  resumes seamlessly. Screen lock/resume and network switches keep using
+  `resumeTick`/`connectAttempt`.
+- **Latest-discovery-wins:** the `discovering` boolean was removed. Each
+  `discoverAndPlay()` cancels and supersedes any in-flight discovery, so a
+  lifecycle/network resume is never silently swallowed by a stale background
+  attempt. Cancellation is rethrown (not swallowed into `discoveryError`).
+
+**Validation:** `./gradlew test lint :app:assembleDebug` green. On-device
+verification must confirm: pause >5s then resume recovers (~2-3s) without the
+video auto-restarting while paused; unlocking never leaves a black screen; a
+paused-then-network-switched session still recovers.
+
+### 2026-08-11 — Re-enrollment after identity loss must surface the login URL
+
+**Context:** After a fresh install-over of the netlink-fixed APK, the app
+reported `Tailscale requires authentication` with no login link on screen.
+The embedded node's persisted identity (`filesDir/tailscale/tailscaled.state`)
+was no longer accepted by the control plane (node likely removed in the admin
+console or the state file lost), so tsnet returned to `NeedsLogin`.
+
+**Decision:** Two fixes, both on the path from `NeedsLogin` to a visible
+enrollment action:
+
+1. `TsnetGatewayImpl.ensureRunning` kept throwing `TailscaleAuthRequired` on
+   the first `AUTHENTICATING` poll, but tsnet publishes `AuthURL`
+   asynchronously, so the link was almost never captured. It now keeps polling
+   in `AUTHENTICATING` until a non-blank URL appears (bounded by the connect
+   timeout), and only then fails with `TailscaleAuthRequired(url)`; a plain
+   connect timeout still reports the original timeout error unless the node was
+   seen authenticating.
+2. The UI now gets an explicit `authRequired` flag propagated through
+   `FrigateTransportResult.Failure` -> `FrigateConnection.Failed`, so the
+   failed screen can show either the enrollment URL with an **Open login URL**
+   button (`ACTION_VIEW`) or, when the URL is still unavailable, a hint telling
+   the user to retry or read logcat.
+
+**Validation:** `./gradlew test lint :app:assembleDebug` green. The re-auth
+itself is expected POC behavior: with no long-lived credential embedded, an
+invalid node identity requires a manual interactive enrollment again. On-device
+verification must confirm that re-enrolling restores connectivity and that the
+node identity survives later app restarts and network switches.
+
+### 2026-08-11 — Patched Go toolchain is now the default for `assembleDebug`
+
+**Context:** After the lock/unlock and network-switch fixes were built with the
+standard Go toolchain, the physical-device test regressed to
+`tsnet: route ip+net: netlinkrib: permission denied` (the Phase 1 Android 11+
+blocker): `./gradlew assembleDebug` was still documented to use the standard
+toolchain, and the AAR built by the previous unpatched run was packaged into the
+APK. The player never appeared because `FrigateConnectionManager.connect()`
+returned `Failed`.
+
+**Decision:** `native/tailscale/build.gradle.kts` now resolves the patched
+toolchain at `<repo>/go-patched` as the default when `bin/go` is present; an
+explicit `-PgoToolchainRoot` still wins, and environments without a patched
+toolchain fall back to the standard Go toolchain (CI-safe). The goBind task's
+cache input reflects the resolved toolchain path. README updated: the standard
+`./gradlew assembleDebug` now produces a device-working APK; the fallback case
+(no patched toolchain) is documented as compiling but failing `tsnet.Start()` on
+physical Android 11+ devices.
+
+**Validation:** `./gradlew :app:assembleDebug` (no property) re-ran goBind with
+`PATCHED_GOROOT` set and produced an APK whose `libgojni.so` contains
+`net.interfaceTableAndroid` (the CL 507415 fix). Full `test`/`lint`/`assembleDebug`
+green.
+
+### 2026-08-11 — Live playback must reconnect when the Android network changes
+
+**Symptom:** Dropping home Wi-Fi (phone moves to mobile data / the embedded
+Tailscale path) reproduced the pre-lock/unlock playback failure: the video died
+and did not recover.
+
+**Root causes:**
+1. `connect()` ran only once (or on manual retry), so the transport stayed
+   `LOCAL` after the Wi-Fi drop and the local getter kept failing with nothing
+   watching for the network switch.
+2. Latent bug: `LiveView` created its `LiveStreamPlayer` with a bare
+   `remember {}`, so the player captured the first getter (LOCAL). Even a
+   transport switch would have kept media requests on the dead local getter.
+
+**Fix:**
+- `HomeScreen` registers a default `NetworkCallback` (`onAvailable`/`onLost`)
+  that re-runs the transparent `connect()` (local-first, Tailscale fallback),
+  so a Wi-Fi drop automatically migrates the connection to the embedded tailnet
+  path. The callback calls the latest `connect` via `rememberUpdatedState`.
+- `LiveView` now keys the player by `(transport, gateway)` so a transport switch
+  rebuilds the player on the matching getter, and re-runs discovery on a new
+  `connectAttempt` key even when the transport stays the same (e.g. local Wi-Fi
+  flaps). The re-discover-and-play path reuses the lock/unlock fix above.
+- Network switch testing is now possible without killing the app (Phase 5
+  checklist item).
+
+**Validation:** `./gradlew test lint :app:assembleDebug` green. On-device
+Wi-Fi-drop validation pending.
+
+### 2026-08-11 — Playback must re-establish the go2rtc HLS session on resume
+
+**Symptom:** After the phone screen is locked and unlocked, live video does not
+return on its own; the app must be killed and reopened.
+
+**Root cause:** go2rtc drops an HLS session on its ~5s keepalive. While the
+screen is off the Activity goes to background and the SurfaceView is destroyed,
+so ExoPlayer stops consuming segments and the session expires; on unlock the
+media playlist URL still carries the stale `id=` and the player ends in an
+error state that the UI only recovers from by restarting the whole flow.
+
+**Fix:**
+- `MainActivity` sets `FLAG_KEEP_SCREEN_ON` so the screen timeout never
+  interrupts live playback while the app is foregrounded (manual lock still
+  works and is covered by the observer below).
+- `LiveStreamPlayer` gained `pause()` to stop fetching while the app is in the
+  background.
+- `LiveView` observes the Activity lifecycle: `ON_STOP` pauses the player, and
+  every `ON_RESUME` re-runs the go2rtc discovery (`firstStreamName` +
+  `resolveMediaPlaylistUrl`, which creates a fresh session) and restarts
+  playback. A first version only re-discovered when the player was not
+  `STATE_READY`, but the player stays `STATE_READY` even after the HLS session
+  has expired, so a long suspension still broke playback: the resume path now
+  always creates a new session (short lock/unlock cycles pay a ~1-2s restart
+  instead of a dead stream). This also covers the network-switch reconnect case
+  from Phase 5.
+
+**Validation:** `./gradlew test lint :app:assembleDebug` green. On-device test
+passed on the physical device (Samsung SM-S721B): after a ~10-20s screen lock
+the live view returns on unlock without restarting the app.
+
+**Validation:** `./gradlew test lint :app:assembleDebug` green. Device
+re-validation of lock/unlock and Wi-Fi->mobile transitions pending.
+
+### 2026-08-11 — Frigate 0.17.1 serves go2rtc under `/api/go2rtc/`, not `/go2rtc/`
+
+**Symptom:** On the physical device the live view failed before playback with
+`HLS master is not an m3u8 playlist (HTTP 200, type=text/html)` where the body
+was a web SPA embedding the Monaco editor (`self["MonacoEnvironment"]`, with
+`editor.worker.bundle.js` / `yaml.worker.bundle.js` workers).
+
+**Root cause (reproduced from the dev container against the real Frigate):**
+`GET /api/version` answers Frigate on the `site.omni.corp` origin, but a request
+to `GET /go2rtc/streams` (without the `/api/` prefix) is caught by the Frigate
+0.17.1 web UI SPA and returns HTML with HTTP 200 and `Content-Type: text/html`.
+The Frigate/go2rtc paths used by the spike were based on the documented prefix
+`/go2rtc/`, which is wrong for this version. The working prefix on this install
+(confirmed by direct requests to `192.168.10.13:5000` and through the NPM
+proxy on `site.omni.corp`) is:
+
+- stream list:  `GET /api/go2rtc/streams` -> JSON `{backyard:{...}, hall:{...}, ...}`
+- HLS master:   `GET /api/go2rtc/api/stream.m3u8?src={name}&mp4` -> `#EXTM3U`
+  master referencing `hls/playlist.m3u8?id=...` (relative, resolves under the
+  same `/api/go2rtc/api/` prefix)
+- media playlist, init and segments: `/api/go2rtc/api/hls/playlist.m3u8?id=...`,
+  `/api/go2rtc/api/hls/init.mp4?id=...`, `/api/go2rtc/api/hls/segment.m4s?id=...&n=...`
+  (all verified: 200, `video/mp4`/`video/iso.segment`)
+
+The `?src=backyard` camera and the fMP4 output (`&mp4`, `avc1.640029`) work
+without transcoding.
+
+**Fix:** `Go2RtcStreams` now builds `$baseUrl/api/go2rtc/streams` and
+`$baseUrl/api/go2rtc/api/stream.m3u8?src={name}&mp4`; relative references in the
+master/media playlists still resolve correctly because they are resolved against
+the final URL by both `Go2RtcStreams.resolveMediaPlaylistUrl` and ExoPlayer's
+`HttpBytesDataSource`. Unit tests updated to the `/api/go2rtc/` prefix.
+
+**Validation:** `./gradlew :core:frigate:test :core:playback:test` green.
+Playback on the physical device still needs to be re-run.
 
 ### 2026-08-11 — Phase 4 Experiment A: HLS/fMP4 spike implemented with a getter-routed DataSource
 

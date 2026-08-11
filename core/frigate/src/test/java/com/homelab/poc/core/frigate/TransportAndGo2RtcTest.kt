@@ -22,10 +22,10 @@ class TransportAndGo2RtcTest {
         val getter = bytesGetterFor(TransportKind.TAILSCALE, gateway)
 
         assertTrue("TAILSCALE must use the tsnet getter", getter is TsnetHttpBytesGetter)
-        val result = getter.getBytes("http://frigate:5000/go2rtc/api/stream.m3u8?src=back", 5000)
+        val result = getter.getBytes("http://frigate:5000/api/go2rtc/api/stream.m3u8?src=back", 5000)
 
         assertEquals("the gateway must serve exactly one request", 1, gateway.httpGetBytesCalls)
-        assertEquals("http://frigate:5000/go2rtc/api/stream.m3u8?src=back", gateway.lastUrl)
+        assertEquals("http://frigate:5000/api/go2rtc/api/stream.m3u8?src=back", gateway.lastUrl)
         assertNotNull(result.body)
     }
 
@@ -54,7 +54,7 @@ class TransportAndGo2RtcTest {
 
         assertEquals("back", name)
         assertEquals(
-            "http://frigate:5000/go2rtc/api/stream.m3u8?src=back&mp4",
+            "http://frigate:5000/api/go2rtc/api/stream.m3u8?src=back&mp4",
             streams.hlsUrl(config.tailscaleBaseUrl, "back"),
         )
     }
@@ -83,6 +83,78 @@ class TransportAndGo2RtcTest {
             thrown = e
         }
         assertNotNull("a non-2xx discovery response must raise", thrown)
+    }
+
+    @Test
+    fun `go2rtc session resolution returns the media playlist URL of the master`() = runTest {
+        val master = "#EXTM3U\n" +
+            "#EXT-X-STREAM-INF:BANDWIDTH=192000,CODECS=\"avc1.64001F,mp4a.40.2\"\n" +
+            "hls/playlist.m3u8?id=AbC123"
+        var requests = 0
+        val getter = HttpBytesGetter { url, _ ->
+            requests++
+            HttpBytesResult(200, "application/vnd.apple.mpegurl", url, master.toByteArray())
+        }
+        val streams = Go2RtcStreams(getter)
+
+        val mediaUrl = streams.resolveMediaPlaylistUrl(config.localBaseUrl, "back", 5000)
+
+        assertEquals("session resolution must request the HLS master playlist", 1, requests)
+        assertEquals(
+            "http://frigate:5000/api/go2rtc/api/hls/playlist.m3u8?id=AbC123",
+            mediaUrl,
+        )
+    }
+
+    @Test
+    fun `go2rtc session resolution rejects an empty master body`() = runTest {
+        val getter = HttpBytesGetter { url, _ ->
+            HttpBytesResult(200, "application/vnd.apple.mpegurl", url, ByteArray(0))
+        }
+        val streams = Go2RtcStreams(getter)
+
+        var thrown: Exception? = null
+        try {
+            streams.resolveMediaPlaylistUrl(config.localBaseUrl, "back", 5000)
+        } catch (e: Exception) {
+            thrown = e
+        }
+        assertNotNull("an empty master (go2rtc 200 without a consumer) must raise", thrown)
+        assertTrue(thrown!!.message.orEmpty().contains("not an m3u8"))
+    }
+
+    @Test
+    fun `go2rtc session resolution propagates non-2xx`() = runTest {
+        val getter = HttpBytesGetter { url, _ ->
+            HttpBytesResult(404, "text/plain", url, ByteArray(0))
+        }
+        val streams = Go2RtcStreams(getter)
+
+        var thrown: Exception? = null
+        try {
+            streams.resolveMediaPlaylistUrl(config.localBaseUrl, "back", 5000)
+        } catch (e: Exception) {
+            thrown = e
+        }
+        assertNotNull("a non-2xx master must raise", thrown)
+        assertTrue(thrown!!.message.orEmpty().contains("HTTP 404"))
+    }
+
+    @Test
+    fun `media playlist reference resolves against the master URL`() {
+        assertEquals(
+            "http://frigate:5000/api/go2rtc/api/hls/playlist.m3u8?id=AbC123",
+            Go2RtcStreams.resolveMediaPlaylistUrl(
+                "http://frigate:5000/api/go2rtc/api/stream.m3u8?src=back&mp4",
+                "#EXTM3U\n#EXT-X-STREAM-INF:BANDWIDTH=192000\nhls/playlist.m3u8?id=AbC123",
+            ),
+        )
+        assertNull(
+            Go2RtcStreams.resolveMediaPlaylistUrl(
+                "http://frigate:5000/api/go2rtc/api/stream.m3u8?src=back&mp4",
+                "#EXTM3U\n#EXT-X-STREAM-INF:BANDWIDTH=192000\n",
+            ),
+        )
     }
 
     @Test
