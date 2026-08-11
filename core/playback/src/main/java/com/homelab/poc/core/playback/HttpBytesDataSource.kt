@@ -46,7 +46,22 @@ class HttpBytesDataSource(
 
     override fun open(dataSpec: DataSpec): Long {
         val url = dataSpec.uri.toString()
-        val fetched = runBlocking { getter.getBytes(url, timeoutMs) }
+        val fetched = try {
+            runBlocking { getter.getBytes(url, timeoutMs) }
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            // Connection-level failure (timeout, DNS, refused) surfaced by the
+            // getter or the bridge. Log it with the URL so logcat can tell a
+            // connection problem from a dead go2rtc session, and surface it as
+            // an IOException so ExoPlayer's transient retry policy applies
+            // instead of a fatal error.
+            Log.e(TAG, "HLS GET $url failed (network/bridge): ${e.message ?: e.javaClass.simpleName}")
+            throw IOException(
+                "HttpBytesDataSource: GET $url failed: ${e.message ?: e.javaClass.simpleName}",
+                e,
+            )
+        }
         if (fetched.statusCode !in 200..299) {
             // go2rtc serves init/segments with 404 while its session buffer is
             // empty (camera cold start); ExoPlayer treats a 4xx thrown through

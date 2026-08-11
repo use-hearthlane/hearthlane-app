@@ -541,6 +541,35 @@ These questions must be answered by implementation experiments, not speculation.
 
 Append decisions here as experiments complete.
 
+### 2026-08-11 — Over TAILSCALE the live view recovers from every playback error; request failures are logged and retried
+
+**Context:** On-device testing over Tailscale showed a few playback errors
+(recoveries fired) while LOCAL had zero. The live view should always recover
+over the VPN path, and logcat should make the errors diagnosable (handled by
+the app vs. a real connection problem).
+
+**Decision:**
+
+- The auto-recovery is now unbounded over TAILSCALE: every
+  `PlaybackStatus.Error` re-discovers a fresh go2rtc session (reusing the
+  cached stream name), so a dead stream never leaves a black screen. LOCAL
+  keeps the bounded budget (`MAX_AUTO_RECOVERY`) because a genuine failure
+  there is not expected.
+- `HttpBytesDataSource.open()` now catches getter/bridge failures (timeout,
+  DNS, refused) that gomobile surfaces as generic exceptions, logs them with
+  the URL (`HLS GET <url> failed (network/bridge): ...`) and rethrows them as
+  `IOException`, so ExoPlayer's transient retry policy applies instead of
+  treating them as fatal. Non-2xx and payload-validation failures were already
+  logged; this closes the gap for connection-level errors.
+- The live view diagnostics line now also shows a `recoveries` count, so
+  on-device tests can tell handled recoveries from unhandled errors without
+  logcat.
+
+**Validation:** `./gradlew test lint :app:assembleDebug` green. On-device
+verification over Tailscale must confirm the video keeps coming back after
+errors and logcat shows the per-request failure categories (timeout vs. 404
+vs. empty payload).
+
 ### 2026-08-11 — Pause does not stop media3 network activity; the UI is now Play/Stop only
 
 **Symptom (device test):** pressing Pause during live playback kept the

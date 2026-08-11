@@ -342,6 +342,10 @@ private fun LiveView(
     // failure so a stale name (e.g. after a Frigate restart) self-heals on the
     // next attempt.
     var lastStreamName by remember { mutableStateOf<String?>(null) }
+    // How many times the auto-recovery re-established a session for this view;
+    // shown next to the error count so on-device tests can tell recoveries
+    // (handled) apart from errors that surfaced without a retry.
+    var recoveryCount by remember { mutableStateOf(0) }
     // Bounds automatic session recovery so a truly dead stream cannot loop
     // forever. A discovery is never silently dropped: the latest request
     // cancels and supersedes any in-flight one.
@@ -444,18 +448,29 @@ private fun LiveView(
     }
 
     // Auto-recovery for mid-playback failures only. The budget renews only
-    // after a session played stably, otherwise a flapping stream stops
-    // retrying after MAX_AUTO_RECOVERY and surfaces its error.
-    LaunchedEffect(playbackStatus, streamUrl) {
+    // after a session played stably. Over TAILSCALE every error triggers a
+    // fresh-session recovery with no budget: the errors observed there are
+    // transient VPN-path hiccups, and a dead stream must not leave a black
+    // screen (each recovery creates a new go2rtc session). LOCAL stays bounded
+    // because a genuine failure there is not expected.
+    LaunchedEffect(playbackStatus, streamUrl, transport) {
         when (val status = playbackStatus) {
             is PlaybackStatus.Playing -> playingSince = SystemClock.elapsedRealtime()
             is PlaybackStatus.Error ->
                 if (streamUrl != null) {
                     val stable = playingSince?.let { SystemClock.elapsedRealtime() - it } ?: Long.MAX_VALUE
                     if (stable > STABLE_PLAY_MS) autoRecovery = 0
-                    if (autoRecovery < MAX_AUTO_RECOVERY) {
-                        autoRecovery++
-                        Log.w(TAG, "live HLS playback failed (${status.message}); re-discovering a fresh go2rtc session")
+                    val canRecover = transport == TransportKind.TAILSCALE ||
+                        autoRecovery < MAX_AUTO_RECOVERY
+                    if (canRecover) {
+                        val attempt = autoRecovery + 1
+                        if (transport != TransportKind.TAILSCALE) autoRecovery++
+                        recoveryCount++
+                        Log.w(
+                            TAG,
+                            "live HLS playback failed (${status.message}); re-discovering a fresh go2rtc session " +
+                                "(${if (transport == TransportKind.TAILSCALE) "unbounded TAILSCALE recovery" else "attempt $attempt/$MAX_AUTO_RECOVERY"})",
+                        )
                         discoverAndPlay()
                     }
                 }
@@ -526,6 +541,7 @@ private fun LiveView(
                     metrics.firstFrameElapsedMs?.let { "$it ms" } ?: "n/a",
                     metrics.errorCount,
                     metrics.bytesTransferred,
+                    recoveryCount,
                 ),
                 style = MaterialTheme.typography.bodySmall,
             )
