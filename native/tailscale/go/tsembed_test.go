@@ -48,6 +48,12 @@ func TestStartFailureAllowsRetry(t *testing.T) {
 	}
 }
 
+func TestHttpGetRequiresRunningNode(t *testing.T) {
+	if _, err := HttpGet("http://frigate:5000/api/version", 1000); err == nil {
+		t.Fatal("HttpGet must fail when the node is not running")
+	}
+}
+
 func waitForState(t *testing.T, want string) status {
 	t.Helper()
 	deadline := time.Now().Add(5 * time.Second)

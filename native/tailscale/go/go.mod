@@ -2,7 +2,10 @@ module homelab/poc/tsembed
 
 go 1.26.5
 
-require tailscale.com v1.102.2
+require (
+	github.com/miekg/dns v1.1.58
+	tailscale.com v1.102.2
+)
 
 require (
 	filippo.io/edwards25519 v1.2.0 // indirect

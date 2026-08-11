@@ -1,11 +1,20 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">POC Camera</string>
-    <string name="phase_one_subtitle">Phase 1: embedded Tailscale. Start the node to enroll this device in the tailnet as %1$s.</string>
-    <string name="connection_state_label">Connection state</string>
-    <string name="connection_state_value">%1$s</string>
+    <string name="phase_two_subtitle">Phase 2: transparent Frigate connectivity. Home LAN first, embedded Tailscale fallback.</string>
+    <string name="url_settings_label">Frigate endpoint</string>
+    <string name="frigate_url_label">Frigate URL (works on Wi-Fi and Tailscale)</string>
+    <string name="connection_state_label">Connection</string>
+    <string name="connection_state_connecting">Connecting…</string>
+    <string name="connection_state_idle">Idle</string>
+    <string name="connection_state_connected">Connected via %1$s</string>
+    <string name="connection_state_failed">Connection failed</string>
+    <string name="transport_local">LOCAL</string>
+    <string name="transport_tailscale">TAILSCALE</string>
+    <string name="frigate_version_value">Frigate version: %1$s</string>
     <string name="auth_url_hint">This device needs enrollment. Open this URL in a browser while signed in to the tailnet admin:</string>
     <string name="error_label">Error</string>
-    <string name="start_button">Start node</string>
-    <string name="stop_button">Stop node</string>
+    <string name="copy_error_button">Copy error</string>
+    <string name="connect_button">Connect to Frigate</string>
+    <string name="retry_button">Retry</string>
 </resources>

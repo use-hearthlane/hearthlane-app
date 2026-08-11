@@ -4,6 +4,14 @@ plugins {
     alias(libs.plugins.kotlin.compose)
 }
 
+// Frigate destination for the Phase 2 transparent connection strategy. The same
+// URL is used for the home-LAN probe and for the Tailscale probe; on the
+// Tailscale path the hostname resolves through the tailnet DNS (MagicDNS /
+// homelab DNS configured in the Tailscale admin console). Overridable at build
+// time:
+//   ./gradlew -Pfrigate.baseUrl=http://site.omni.corp :app:assembleDebug
+val frigateBaseUrl = (project.findProperty("frigate.baseUrl") as String?) ?: "http://site.omni.corp"
+
 android {
     namespace = "com.homelab.poc"
     compileSdk = libs.versions.compileSdk.get().toInt()
@@ -14,6 +22,8 @@ android {
         targetSdk = libs.versions.targetSdk.get().toInt()
         versionCode = 1
         versionName = "0.1.0"
+
+        buildConfigField("String", "FRIGATE_BASE_URL", "\"$frigateBaseUrl\"")
     }
 
     buildTypes {
@@ -29,6 +39,7 @@ android {
 
     buildFeatures {
         compose = true
+        buildConfig = true
     }
 }
 

@@ -23,6 +23,15 @@ object TailscaleBridge {
     }
 
     /**
+     * Performs an HTTP GET exclusively over the embedded tailnet (the Go side
+     * dials with tsnet's own transport). Blocks the calling thread and must
+     * not be invoked on the main thread.
+     *
+     * @throws Exception when the node is not running or the request fails.
+     */
+    fun httpGet(url: String, timeoutMs: Long): String = Tsembed.httpGet(url, timeoutMs)
+
+    /**
      * Reports the current embedded node state. Cheap to poll for a UI loop.
      * Runs a blocking Go call and should not be invoked on the main thread.
      */

@@ -10,13 +10,12 @@ and decision log.
 
 ## Status
 
-Phase 1 — Embedded Tailscale Spike. The Go component (tsnet behind a small
-`start`/`stop`/`status` API) builds as an Android AAR via `gomobile bind`, and
-the app exposes an enrollment screen that starts/stops the embedded node and
-shows its connectivity state. On-device device testing is currently blocked by a
-Go stdlib issue on Android 11+ (`netlinkrib: permission denied`, see Decision
-Log). An isolated patched-toolchain experiment has been prepared to validate the
-node on a device; see `docs/TOOLCHAIN_PATCH.md`.
+Phase 2 — Transparent Frigate Connectivity. The app probes Frigate
+(`GET /api/version`) over the home LAN first (2 s timeout) and falls back to
+the embedded Tailscale network when the local attempt fails. Phase 1 validated
+the embedded tsnet node on a physical Android device via an isolated patched Go
+toolchain (netlinkrib fix) plus the `TS_LOGS_DIR` fix; see
+`docs/TOOLCHAIN_PATCH.md` and the PLAN.md decision log.
 
 ## Prerequisites
 
@@ -76,15 +75,35 @@ To install on a connected physical device:
 ./gradlew installDebug
 ```
 
-## On-device enrollment (Phase 1 acceptance)
+## On-device test (Phase 2)
 
-1. Install and launch the app with the device on an unrelated network (mobile
-   data or non-home Wi-Fi).
-2. Tap **Start node**. The state becomes `Authenticating` and the app shows a
-   `login.tailscale.com/...` URL.
-3. Open that URL in a browser, signed in to the tailnet admin account.
-4. The state becomes `Connected`; the device should appear as a new node
-   (`poc-camera`) in the tailnet admin console.
+1. Install and launch the app.
+2. The app probes Frigate over the local network first:
+   - **Home Wi-Fi:** the app shows `Connected via LOCAL` and the Frigate
+     version; Tailscale stays stopped.
+   - **Mobile data / non-home Wi-Fi:** the local probe fails within ~2 s, the
+     embedded Tailscale node starts, and the app shows `Connected via TAILSCALE`
+     plus the Frigate version.
+3. If the embedded node has never been enrolled, the app shows a
+   `login.tailscale.com/...` URL. Open it in a browser signed in to the tailnet
+   admin account, then tap **Retry**.
+
+The used transport is also visible in logcat under the `FrigateConnection` tag
+(`local probe started/succeeded/failed`, `Tailscale fallback started`,
+`Frigate probe via Tailscale started/succeeded`, `connection failed`).
+
+The Frigate URL is editable in the app before connecting and defaults to the
+build-time value (also overridable at build time):
+
+```text
+./gradlew -Pfrigate.baseUrl=http://site.omni.corp :app:assembleDebug
+```
+
+The same URL is used for both paths. On the Tailscale path the hostname
+resolves through the tailnet DNS (homelab DNS configured in the Tailscale admin
+console / MagicDNS). On the home-LAN path it resolves through the network the
+phone is on; if that DNS does not answer, the app transparently falls back to
+the Tailscale path.
 
 No auth key, OAuth secret or other long-lived credential is embedded in the APK.
 
