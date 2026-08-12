@@ -1,30 +1,15 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">POC Camera</string>
-    <string name="phase_two_subtitle">Phase 2: transparent Frigate connectivity. Home LAN first, embedded Tailscale fallback.</string>
-    <string name="url_settings_label">Frigate endpoint</string>
     <string name="frigate_url_label">Frigate URL (works on Wi-Fi and Tailscale)</string>
-    <string name="connection_state_label">Connection</string>
-    <string name="connection_state_connecting">Connecting…</string>
-    <string name="connection_state_idle">Idle</string>
-    <string name="connection_state_connected">Connected via %1$s</string>
-    <string name="connection_state_failed">Connection failed</string>
     <string name="transport_local">LOCAL</string>
     <string name="transport_tailscale">TAILSCALE</string>
     <string name="frigate_version_value">Frigate version: %1$s</string>
     <string name="auth_url_hint">This device needs enrollment. Open this URL in a browser while signed in to the tailnet admin:</string>
     <string name="auth_url_pending_hint">The enrollment URL is not available yet. Wait a moment and tap Retry.</string>
     <string name="open_auth_url_button">Open login URL</string>
-    <string name="error_label">Error</string>
     <string name="copy_error_button">Copy error</string>
-    <string name="connect_button">Connect to Frigate</string>
     <string name="retry_button">Retry</string>
-
-    <string name="camera_discovery_title">Cameras</string>
-    <string name="camera_discovery_loading">Discovering cameras…</string>
-    <string name="camera_discovery_empty">No cameras configured.</string>
-    <string name="camera_discovery_error">Camera discovery failed: %1$s</string>
-    <string name="camera_discovery_refresh">Refresh</string>
 
     <string name="live_view_title">Live view (Phase 4 HLS spike)</string>
     <string name="live_view_transport">Transport: %1$s</string>
@@ -51,5 +36,26 @@
     <string name="setup_finish_button">Save and continue</string>
     <string name="settings_button">Settings</string>
     <string name="back_button">Back</string>
+    <string name="refresh_button">Refresh cameras</string>
+
+    <!-- Home screen (family-facing) -->
+    <string name="home_title">Cameras</string>
+    <string name="home_connecting">Connecting…</string>
+    <string name="home_connecting_body">Looking for your cameras…</string>
+    <string name="home_live">Live</string>
+    <string name="home_try_again">Try again</string>
+    <string name="home_loading_cameras">Loading cameras…</string>
+    <string name="home_no_cameras">No cameras configured.</string>
+    <string name="home_cameras_error">Could not load cameras.</string>
+    <string name="home_connection_error">Could not reach the camera server.</string>
+    <string name="camera_unavailable">Camera unavailable</string>
+
+    <!-- Camera discovery (administrator-facing) -->
+    <string name="camera_discovery_title">Discovered cameras</string>
+    <string name="camera_discovery_loading">Loading cameras…</string>
+    <string name="camera_discovery_empty">No cameras found.</string>
+    <string name="camera_discovery_refresh">Refresh</string>
+    <string name="camera_discovery_error">Discovery error: %1$s</string>
+    <string name="connection_state_label">Connection state</string>
 </resources>
 

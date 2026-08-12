@@ -71,6 +71,7 @@ internal fun LiveView(
     transport: TransportKind,
     connectAttempt: Int,
     networkTick: Int,
+    modifier: Modifier = Modifier,
 ) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -232,7 +233,7 @@ internal fun LiveView(
         }
     }
 
-    Column(modifier = Modifier.fillMaxWidth()) {
+    Column(modifier = modifier.fillMaxWidth()) {
         Text(
             text = stringResource(R.string.live_view_title),
             style = MaterialTheme.typography.titleLarge,

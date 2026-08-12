@@ -11,6 +11,7 @@ import com.homelab.poc.core.frigate.TailscaleTransport
 import com.homelab.poc.core.frigate.TransportKind
 import com.homelab.poc.core.frigate.TsnetGateway
 import com.homelab.poc.settings.AppSettings
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -34,12 +35,32 @@ import kotlinx.coroutines.withContext
  * again). Networking and playback code is untouched; this class only relocates
  * where the state lives.
  */
-class FrigateConnectionController(
+class FrigateConnectionController internal constructor(
     val gateway: TsnetGateway,
     private val settings: AppSettings,
     private val connectivityManager: ConnectivityManager,
     private val scope: CoroutineScope,
+    private val connector: suspend (baseUrl: String) -> FrigateConnection,
+    private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
 ) {
+
+    /**
+     * Production constructor. Builds the proven transparent connection strategy
+     * from the injected [gateway].
+     */
+    constructor(
+        gateway: TsnetGateway,
+        settings: AppSettings,
+        connectivityManager: ConnectivityManager,
+        scope: CoroutineScope,
+    ) : this(
+        gateway = gateway,
+        settings = settings,
+        connectivityManager = connectivityManager,
+        scope = scope,
+        connector = { baseUrl -> defaultConnect(baseUrl, gateway) },
+        ioDispatcher = Dispatchers.IO,
+    )
 
     /** Last connect result; null until the first attempt completes. */
     private val _connection = MutableStateFlow<FrigateConnection?>(null)
@@ -115,7 +136,7 @@ class FrigateConnectionController(
         val baseUrl = settings.baseUrl.value
         Log.i(TAG, "connect requested (baseUrl=$baseUrl, restartPlayback=$restartPlayback)")
         scope.launch {
-            val result = withContext(Dispatchers.IO) { runConnect(baseUrl) }
+            val result = withContext(ioDispatcher) { runConnect(baseUrl) }
             if (result is FrigateConnection.Connected) {
                 val previous = _lastProbedTransport.value
                 val switched = previous != null && previous != result.transport
@@ -148,25 +169,41 @@ class FrigateConnectionController(
      * [lastError] for the Diagnostics report.
      */
     suspend fun testConnection(baseUrl: String): FrigateConnection {
-        val result = withContext(Dispatchers.IO) { runConnect(baseUrl) }
+        val result = withContext(ioDispatcher) { runConnect(baseUrl) }
         if (result is FrigateConnection.Failed) _lastError.value = result.error
         return result
     }
 
     /** The single construction of the transparent connection strategy, shared
      *  by [connect] and [testConnection] so the probe path is never forked. */
-    private suspend fun runConnect(baseUrl: String): FrigateConnection {
-        val config = FrigateConfig(
-            localBaseUrl = baseUrl,
-            tailscaleBaseUrl = baseUrl,
-        )
-        val manager = FrigateConnectionManager(
-            config = config,
-            localTransport = LocalTransport(config),
-            tailscaleTransport = TailscaleTransport(gateway, config),
-            tailscaleGateway = gateway,
-        )
-        return manager.connect()
+    private suspend fun runConnect(baseUrl: String): FrigateConnection = connector(baseUrl)
+
+    companion object {
+
+        /** Default connector used in production; extracted so tests can inject a fake. */
+        private suspend fun defaultConnect(
+            baseUrl: String,
+            gateway: TsnetGateway,
+        ): FrigateConnection {
+            val config = FrigateConfig(
+                localBaseUrl = baseUrl,
+                tailscaleBaseUrl = baseUrl,
+            )
+            val manager = FrigateConnectionManager(
+                config = config,
+                localTransport = LocalTransport(config),
+                tailscaleTransport = TailscaleTransport(gateway, config),
+                tailscaleGateway = gateway,
+            )
+            return manager.connect()
+        }
+
+        const val TAG = "PocCamera"
+
+        // Coalesces the rapid onLost/onAvailable bursts that accompany a
+        // network switch before re-probing, so a handover does not churn the
+        // connection.
+        const val NETWORK_SETTLE_MS = 1_000L
     }
 
     /**
@@ -182,13 +219,5 @@ class FrigateConnectionController(
             delay(NETWORK_SETTLE_MS)
             connect(restartPlayback = false)
         }
-    }
-
-    private companion object {
-        const val TAG = "PocCamera"
-        // Coalesces the rapid onLost/onAvailable bursts that accompany a
-        // network switch before re-probing, so a handover does not churn the
-        // connection.
-        const val NETWORK_SETTLE_MS = 1_000L
     }
 }

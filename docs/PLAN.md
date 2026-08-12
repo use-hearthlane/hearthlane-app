@@ -649,6 +649,71 @@ both transports. No divergence between camera key and stream name was observed;
 if that ever occurs on another install, the mapping rule must be decided from
 the observed payload rather than guessed.
 
+### 2026-08-12 — V1.3 family-facing Home screen implemented with per-camera navigation and transport-routed thumbnails
+
+**Context:** V1.2 resolved the camera list from Frigate. V1.3 builds the Home
+UX around that list: a grid of cards with friendly names, snapshot thumbnails
+and playable/unavailable states, plus the navigation shell to a per-camera Live
+View. The POC playback logic is reused unchanged.
+
+**Decision:**
+
+- `HomeScreen` is rewritten as a family-facing camera grid. It no longer shows
+  infrastructure details (URL, transport, version, raw errors). Visible states
+  use product language only: "Connecting", "Live", "Camera unavailable",
+  "Try again".
+- Each card shows the Frigate `friendly_name` (camera key fallback), a
+  best-effort snapshot thumbnail, and an overlay when the camera is not
+  `playable`. Tapping a playable card navigates to `Screen.Live(camera.id)`.
+- The `Screen.Live` route and `LiveScreen` container are introduced in V1.3 so
+  the Home grid can route by camera id. The actual per-camera playback refactor
+  (replacing `Go2RtcStreams.firstStreamName()` with the selected camera's
+  stream) is intentionally left to V1.4; V1.3 only adds the route shell and
+  reuses the existing `LiveView` spike.
+- Thumbnails are loaded with Coil, but **no `coil-network-*` dependency** is
+  added. Instead a custom `FrigateSnapshotFetcher` (`app/thumbnail`) implements
+  Coil's `Fetcher` and routes every snapshot request through the existing
+  `HttpBytesGetter` selected by the current transport (`bytesGetterFor`). This
+  keeps snapshot traffic on the same LOCAL/TAILSCALE path as the rest of the
+  app and reuses the proven `HttpBytesGetter` primitive.
+- Memory caching uses `FrigateSnapshotKeyer` with a stable key derived from
+  camera id, base URL and a `refreshKey`. Manual refresh bumps the key so a
+  fresh snapshot is fetched; normal navigation benefits from the in-memory
+  cache. No disk cache is configured beyond Coil's defaults.
+- `CameraDiscoveryController` exposes a `refreshKey` that is bumped on manual
+  refresh so the thumbnail model changes and Coil fetches a new snapshot.
+- Enrollment-during-network-switch bug fixed: when a Live session loses LOCAL
+  connectivity and the Tailscale fallback requires enrollment, the `AppRoot`
+  `Screen.Live` branch now renders a neutral "Connecting" placeholder and lets
+  the global `LaunchedEffect(authRequired)` push `Screen.Setup`. Previously the
+  branch called `navigateBack()` on any `Failed` connection, which raced with
+  the enrollment routing and often left the user on a failed Home screen. The
+  fix is a pure navigation decision (`LiveDestination` / `liveDestination()`)
+  that is unit tested.
+
+**Validation:** `./gradlew test lint :app:assembleDebug` green; Go checks
+(`go test ./...`, `go vet ./...`) green. New tests cover card/grid rendering
+(`CameraCardTest`, `CameraGridSectionTest`), thumbnail fetcher/keyer
+(`FrigateSnapshotTest`, `FrigateSnapshotKeyerTest`,
+`CameraThumbnailModelFactoryTest`), Live navigation decision
+(`AppRootLiveDestinationTest`), and the existing discovery/setup suites.
+
+**Validated (physical device, 2026-08-12):**
+
+- Home grid renders the enabled cameras (`backyard`, `hall`, `gate`) with
+  Frigate friendly names and snapshot thumbnails on both LOCAL (home Wi-Fi) and
+  TAILSCALE (mobile data outside the home LAN).
+- The disabled `garage` camera is not shown.
+- Unavailable cameras (simulated by removing a stream) show the
+  "Camera unavailable" overlay.
+- Manual refresh updates thumbnails without re-probing the connection.
+- **LOCAL -> remote enrollment:** with the embedded node not yet enrolled, the
+  user opened a camera on home Wi-Fi (LOCAL), then disabled Wi-Fi and switched
+  to mobile data. The app detected the network loss, re-probed, hit the
+  Tailscale auth-required state, and correctly routed to the enrollment screen
+  instead of falling back to a failed Home state. After completing enrollment
+  the Live view resumed over TAILSCALE.
+
 ### 2026-08-12 — V1.1 first-run setup implemented without touching the POC network/playback stack
 
 **Context:** V1.0 shipped the screen-capable foundation (shared connection

@@ -25,6 +25,8 @@ fun shouldShowSetup(setupComplete: Boolean): Boolean = !setupComplete
  * to logs.
  */
 class SetupFlow(
+    enrollmentRequired: Boolean = false,
+    authUrl: String? = null,
     private val probe: suspend (url: String) -> FrigateConnection,
 ) {
 
@@ -45,7 +47,9 @@ class SetupFlow(
         data class Failed(val message: String) : State
     }
 
-    private val _state = MutableStateFlow<State>(State.EnterConfig)
+    private val _state = MutableStateFlow<State>(
+        if (enrollmentRequired) State.EnrollmentRequired(authUrl) else State.EnterConfig,
+    )
     val state: StateFlow<State> = _state.asStateFlow()
 
     /** URL that produced the current result, or null before the first test. */

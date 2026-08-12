@@ -53,4 +53,21 @@ class AppNavigationTest {
         navigation.navigateBack()
         assertEquals("Setup must not remain on the stack after a reset", Screen.Home, navigation.current)
     }
+
+    @Test
+    fun `Live screen is pushed with camera id and pops back`() {
+        val navigation = AppNavigation()
+        navigation.navigateTo(Screen.Live("backyard"))
+        assertEquals(Screen.Live("backyard"), navigation.current)
+        navigation.navigateBack()
+        assertEquals(Screen.Home, navigation.current)
+    }
+
+    @Test
+    fun `Live screen identity is the camera id`() {
+        val navigation = AppNavigation()
+        navigation.navigateTo(Screen.Live("garage"))
+        val current = navigation.current as Screen.Live
+        assertEquals("garage", current.cameraId)
+    }
 }

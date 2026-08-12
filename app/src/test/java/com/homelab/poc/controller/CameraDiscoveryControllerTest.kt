@@ -111,6 +111,23 @@ class CameraDiscoveryControllerTest {
     }
 
     @Test
+    fun `refresh bumps the refresh key for thumbnail cache busting`() = runTest {
+        val connection = MutableStateFlow<FrigateConnection?>(
+            FrigateConnection.Connected(TransportKind.LOCAL, "0.17.1"),
+        )
+        val controller = controller(connection = connection, scope = backgroundScope)
+
+        assertEquals(0, controller.refreshKey.value)
+
+        controller.start()
+        runCurrent()
+        controller.refresh()
+        runCurrent()
+
+        assertEquals(1, controller.refreshKey.value)
+    }
+
+    @Test
     fun `refresh does nothing when there is no current connection`() = runTest {
         val connection = MutableStateFlow<FrigateConnection?>(null)
         var calls = 0

@@ -58,10 +58,18 @@ fun SetupScreen(
     title: String,
     onFinished: () -> Unit,
     onBack: (() -> Unit)? = null,
+    enrollmentRequired: Boolean = false,
+    authUrl: String? = null,
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    val flow = remember(controller) { SetupFlow(controller::testConnection) }
+    val flow = remember(controller, enrollmentRequired, authUrl) {
+        SetupFlow(
+            probe = controller::testConnection,
+            enrollmentRequired = enrollmentRequired,
+            authUrl = authUrl,
+        )
+    }
     val state by flow.state.collectAsState()
 
     // The field is an editable view over the persisted URL and is only

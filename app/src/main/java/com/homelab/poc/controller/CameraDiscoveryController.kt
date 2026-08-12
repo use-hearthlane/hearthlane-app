@@ -38,6 +38,13 @@ class CameraDiscoveryController(
     private val _state = MutableStateFlow<CameraDiscoveryState>(CameraDiscoveryState.Loading)
     val state: StateFlow<CameraDiscoveryState> = _state.asStateFlow()
 
+    /**
+     * Bumped every time [refresh] is called. Camera cards include this key in
+     * the Coil snapshot model so a manual refresh fetches a fresh thumbnail.
+     */
+    private val _refreshKey = MutableStateFlow(0)
+    val refreshKey: StateFlow<Int> = _refreshKey.asStateFlow()
+
     private var observing = false
     private var discoveryJob: Job? = null
     private var discoveredTransport: TransportKind? = null
@@ -66,6 +73,7 @@ class CameraDiscoveryController(
     /** Re-runs discovery on the current transport without re-probing the connection. */
     fun refresh() {
         val transport = (connection.value as? FrigateConnection.Connected)?.transport ?: return
+        _refreshKey.value += 1
         discoveredTransport = transport
         discover(transport)
     }

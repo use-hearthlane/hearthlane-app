@@ -17,6 +17,13 @@ sealed interface Screen {
 
     /** First-run administrator setup; reopened from Settings to edit the server. */
     data object Setup : Screen
+
+    /**
+     * Live view for a single camera. The route identity is the camera id; the
+     * display name is passed as a screen argument so the title can stay
+     * family-facing without re-querying discovery.
+     */
+    data class Live(val cameraId: String) : Screen
 }
 
 /**

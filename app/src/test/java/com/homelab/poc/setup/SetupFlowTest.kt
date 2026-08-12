@@ -34,6 +34,30 @@ class SetupFlowTest {
     }
 
     @Test
+    fun `starts at EnrollmentRequired when opened for enrollment with authUrl`() {
+        val flow = SetupFlow(
+            probe = { connected() },
+            enrollmentRequired = true,
+            authUrl = "https://login.tailscale.com/a/abc123",
+        )
+        assertEquals(
+            SetupFlow.State.EnrollmentRequired("https://login.tailscale.com/a/abc123"),
+            flow.state.value,
+        )
+        assertFalse("an open enrollment must not allow finishing", flow.canComplete())
+    }
+
+    @Test
+    fun `starts at EnrollmentRequired when opened for enrollment without authUrl`() {
+        val flow = SetupFlow(
+            probe = { connected() },
+            enrollmentRequired = true,
+            authUrl = null,
+        )
+        assertEquals(SetupFlow.State.EnrollmentRequired(null), flow.state.value)
+    }
+
+    @Test
     fun `successful test moves to Connected and allows finishing`() = runTest {
         val flow = SetupFlow { connected() }
         flow.test("http://site.omni.corp")
