@@ -29,7 +29,7 @@ class TailscaleTransport(
             Log.i(TAG, "Frigate probe via Tailscale succeeded (version=$version)")
             FrigateTransportResult.Success(version)
         } catch (e: TailscaleAuthRequired) {
-            Log.w(TAG, "Tailscale requires authentication: ${e.authUrl}")
+            Log.w(TAG, "Tailscale requires authentication (enrollment pending)")
             FrigateTransportResult.Failure(
                 error = "Tailscale requires authentication",
                 authUrl = e.authUrl,

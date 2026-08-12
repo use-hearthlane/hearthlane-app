@@ -13,7 +13,7 @@
     <string name="transport_tailscale">TAILSCALE</string>
     <string name="frigate_version_value">Frigate version: %1$s</string>
     <string name="auth_url_hint">This device needs enrollment. Open this URL in a browser while signed in to the tailnet admin:</string>
-    <string name="auth_url_pending_hint">The enrollment URL is not available yet. Wait a moment and tap Retry, or read it from logcat (tsembed login required).</string>
+    <string name="auth_url_pending_hint">The enrollment URL is not available yet. Wait a moment and tap Retry.</string>
     <string name="open_auth_url_button">Open login URL</string>
     <string name="error_label">Error</string>
     <string name="copy_error_button">Copy error</string>

@@ -51,7 +51,9 @@ class TsnetGatewayImpl(
                     // polling so the UI can show the login link instead of a
                     // bare error with nothing to act on.
                     status.authUrl?.takeIf { it.isNotBlank() }?.let { url ->
-                        Log.i(TAG, "Tailscale requires authentication: $url")
+                        // The enrollment URL is a transient credential: it is
+                        // surfaced to the UI but never written to logcat.
+                        Log.i(TAG, "Tailscale requires authentication (enrollment pending)")
                         throw TailscaleAuthRequired(url)
                     }
                 }
