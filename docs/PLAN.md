@@ -541,6 +541,50 @@ These questions must be answered by implementation experiments, not speculation.
 
 Append decisions here as experiments complete.
 
+### 2026-08-12 — V1.0 product foundation implemented without touching the POC network/playback stack
+
+**Context:** The POC (embedded Tailscale + transparent Frigate connectivity +
+HLS/fMP4 live view) is code-complete; the product plan in `docs/V1.md` defines
+the first family-facing version. V1.0 is the screen-capable foundation: it must
+not change any networking or playback behavior.
+
+**Decision:**
+
+- `app/ui/HomeScreen.kt` was split: the connection/session state (connect
+  strategy, transport tracking, network-driven re-probe with settle delay,
+  connect/network ticks) moved into
+  `app/controller/FrigateConnectionController`, which still calls
+  `FrigateConnectionManager` unchanged. The network callback lifecycle moved
+  from a `DisposableEffect` inside HomeScreen to `controller.start()/stop()`.
+- `app/navigation/Screen.kt` adds the sealed-class navigation (`Screen.Home`
+  shell only; Live View/Diagnostics/Settings arrive in later milestones).
+- `app/settings/AppSettings.kt` persists the Frigate URL and the internal node
+  hostname suffix with AndroidX Preferences DataStore (plaintext, per
+  docs/V1.md section 12); the URL is seeded from the build-time default and no
+  longer uses `rememberSaveable`.
+- The node hostname is now `family-camera-<suffix>` (suffix generated once and
+  persisted), replacing the POC `poc-camera`; it is an internal value only.
+- `app/diagnostics/DiagnosticsReport.kt` builds the sanitized copy report from
+  an allow-listed `Snapshot`; free-form strings pass through `sanitize` which
+  redacts Tailscale login/control-plane URLs and token-shaped runs. Unit tests
+  assert the report never contains the enrollment URL or token-shaped strings.
+- The enrollment auth URL is no longer written to logcat (already removed from
+  `TsnetGatewayImpl`/`TailscaleTransport`; the "read it from logcat" hint was
+  dropped from `auth_url_pending_hint`). The URL still flows to the UI for the
+  interactive enrollment action.
+- Reused unchanged: `core/connectivity`, `core/frigate`, `core/playback`, the
+  Go `tsembed` module and `native/tailscale` bridge. `LiveView` was only moved
+  out of HomeScreen into its own file; playback logic is identical.
+
+**Validation:** `go test ./...`, `go vet ./...`, `./gradlew test lint
+:app:assembleDebug` all green; new unit tests cover the settings round-trip and
+diagnostics sanitization plus the navigation stack. APK scan confirms no
+`tskey-` auth key and no enrollment URL are packaged.
+
+**Pending (physical device):** install-over the current APK; re-run the POC
+scenarios (LOCAL, TAILSCALE, network switch, lock/unlock, rotation) and confirm
+logcat never shows the enrollment URL.
+
 ### 2026-08-11 — Over TAILSCALE the live view recovers from every playback error; request failures are logged and retried
 
 **Context:** On-device testing over Tailscale showed a few playback errors

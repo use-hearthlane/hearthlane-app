@@ -12,6 +12,9 @@ services:
 
     working_dir: /workspace
 
+    env_file:
+      - ${HOME}/.config/opencode/9router.env
+
     environment:
       HOME: /home/opencode
       TERM: xterm-256color
@@ -22,7 +25,8 @@ services:
       SSH_AUTH_SOCK: /ssh-agent
 
       GIT_TERMINAL_PROMPT: "0"
-      ADB_SERVER_SOCKET: "tcp:host.docker.internal:5037"
+      NINE_ROUTER_API_KEY:
+      NINE_ROUTER_API_URL:
 
     volumes:
       # Current repository only.
@@ -50,8 +54,5 @@ services:
     tmpfs:
       - /tmp:rw,exec,nosuid,nodev,size=512m,mode=1777
       - /run:rw,nosuid,nodev,noexec,size=64m,mode=0755
-
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
 
     restart: "no"
