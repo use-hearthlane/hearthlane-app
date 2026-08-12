@@ -18,6 +18,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import com.homelab.poc.R
+import com.homelab.poc.controller.CameraDiscoveryController
 import com.homelab.poc.controller.FrigateConnectionController
 import com.homelab.poc.core.frigate.FrigateConfig
 import com.homelab.poc.navigation.AppNavigation
@@ -84,6 +85,15 @@ fun AppRoot(
         )
     }
 
+    val cameraDiscovery = remember(controller, gateway) {
+        CameraDiscoveryController(
+            connection = controller.connection,
+            baseUrl = { settings.baseUrl.value },
+            scope = scope,
+            discoverer = CameraDiscoveryController.productionDiscoverer(gateway),
+        )
+    }
+
     val navigation = remember { AppNavigation() }
     // The first-run gate has no back stack entry, so the system back action
     // only pops an explicitly pushed screen (Setup reopened from Home).
@@ -107,14 +117,20 @@ fun AppRoot(
 
     when (val screen = navigation.current) {
         Screen.Home -> {
-            // The network-change listener only runs during normal use; leaving
-            // Home (opening setup) stops it until Home is shown again.
+            // The network-change listener and discovery observer only run during
+            // normal use; leaving Home (opening setup) stops them until Home is
+            // shown again.
             DisposableEffect(controller) {
                 controller.start()
-                onDispose { controller.stop() }
+                cameraDiscovery.start()
+                onDispose {
+                    cameraDiscovery.stop()
+                    controller.stop()
+                }
             }
             HomeScreen(
                 controller = controller,
+                cameraDiscovery = cameraDiscovery,
                 settings = settings,
                 onOpenSettings = { navigation.navigateTo(Screen.Setup) },
             )

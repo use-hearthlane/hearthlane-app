@@ -20,6 +20,12 @@
     <string name="connect_button">Connect to Frigate</string>
     <string name="retry_button">Retry</string>
 
+    <string name="camera_discovery_title">Cameras</string>
+    <string name="camera_discovery_loading">Discovering cameras…</string>
+    <string name="camera_discovery_empty">No cameras configured.</string>
+    <string name="camera_discovery_error">Camera discovery failed: %1$s</string>
+    <string name="camera_discovery_refresh">Refresh</string>
+
     <string name="live_view_title">Live view (Phase 4 HLS spike)</string>
     <string name="live_view_transport">Transport: %1$s</string>
     <string name="live_view_discovering">Discovering camera stream…</string>

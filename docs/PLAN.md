@@ -541,6 +541,114 @@ These questions must be answered by implementation experiments, not speculation.
 
 Append decisions here as experiments complete.
 
+### 2026-08-12 — V1.2 camera discovery implemented over the existing LOCAL/TAILSCALE transport path
+
+**Context:** V1.1 gates the app on first-run administrator setup. V1.2 must
+prove that Frigate's real `/api/config` payload can be parsed into a minimal
+camera model and observed by the app. The POC network/playback stack is
+reused unchanged.
+
+**Validation against the real Frigate 0.17.1 payload:**
+
+- `GET /api/config` returns the full FrigateConfig `model_dump(mode="json",
+  exclude_none=True)`. Cameras live under the top-level `cameras` object, keyed
+  by the camera name.
+- The camera key (the dictionary key) is the stable identifier; the inner
+  `name` field equals the key and is ignored by the parser.
+- The friendly name field is `friendly_name` (String, optional). With
+  `exclude_none=True`, an unset friendly name is **omitted** from the payload
+  rather than serialized as `null`; explicit `null` is still tolerated.
+- The enabled state field is `enabled` (Boolean, default `true` on the
+  `CameraConfig` model). All cameras in the current install carry it.
+- Current install payload: 4 cameras (`backyard`, `hall`, `garage`, `gate`),
+  each with a friendly name; `garage` has `enabled: false`.
+- `/api/config` is guarded by `allow_any_authenticated()`. It allows anonymous
+  requests only when Frigate authentication is disabled (the current install).
+  With Frigate auth enabled, this endpoint would require a JWT from `/auth`.
+  This is recorded as a product risk: V1 camera discovery assumes auth is
+  disabled or that credentials will be added in a later milestone.
+
+**Decision:**
+
+- The `Camera` domain model contains `id`, `displayName`, `enabled` and
+  `playable`, matching the V1.2 task specification. `snapshotUrl` from the
+  broader V1 conceptual model is intentionally deferred to V1.3 (Home UI /
+  thumbnails).
+- Display-name rule: `friendly_name` when present and non-empty; otherwise the
+  camera key, with no title-case or underscore-to-space transformation.
+- Disabled cameras (`enabled: false`) are excluded at the discovery boundary,
+  per docs/V1.md section 6.4 ("Disabled: excluded from Home"). The `enabled`
+  field is still parsed and carried on the model because the task mandates it.
+  A configuration with only disabled cameras yields the `Empty` state, which is
+  valid.
+- Parsing is dependency-free: a small JSON scanner (`CameraConfigJson`) in
+  `core/frigate` extracts `cameras`, iterates keys, reads `friendly_name` and
+  `enabled`, and tolerates extra/unknown fields of arbitrary nesting. This keeps
+  the module JVM-testable without adding a JSON library.
+- Discovery is transport-agnostic: `FrigateCameraDiscovery` takes an injected
+  `HttpBytesGetter`. The app selects the getter with the existing
+  `bytesGetterFor(transport, gateway)` function, so LOCAL discovery uses the
+  OS-network getter (Tailscale never involved) and TAILSCALE discovery routes
+  through the existing `TsnetGateway` with no duplicated HTTP logic.
+- **Playable resolution (camera -> go2rtc stream):** after the enabled cameras
+  are parsed from `/api/config`, discovery requests `GET /api/go2rtc/streams`
+  and collects the full set of top-level stream names (`Go2RtcStreams
+  .streamNames`, order-preserving, no JSON dependency). Each enabled camera is
+  `playable` iff its `id` (the config key, which is also the go2rtc stream
+  name on the real install) belongs to that set. Matching is always by exact
+  camera id; stream order or a "first stream" pick never influences the
+  result. The real-install relation camera key == stream name is the only one
+  proven so far; if a divergence is ever observed on a real payload, it is
+  reported rather than guessed (open question, see Pending below).
+- A camera enabled in the config but without a matching stream stays in the
+  `Loaded` result with `playable = false`; it is never removed. `Empty` still
+  means no enabled camera at all, and the absence of streams never turns the
+  whole discovery into `Empty` or `Error`. This is what lets the future Home
+  show "Camera unavailable" per docs/V1.md section 6.4.
+- **go2rtc endpoint failure:** if `/api/config` succeeds but
+  `/api/go2rtc/streams` fails (non-2xx, transport error, or invalid body), the
+  discovered cameras are preserved with `playable = false` and the failure
+  message is recorded in `CameraDiscoveryState.Loaded.streamsWarning` for
+  diagnostics, instead of losing the whole list. Rationale: `/api/config` is
+  the authoritative camera source, and a streams outage should degrade to
+  "nothing playable" rather than hide the cameras. The controller logs the
+  warning via logcat; no UI change was made in V1.2.
+- The provisional `LiveView` playback spike still uses `Go2RtcStreams
+  .firstStreamName` and was **not** changed: V1.2 has no camera selection UI,
+  so there is no per-camera routing to conflict with, and the first-stream pick
+  is a documented spike behavior until V1.3 routes a selected camera to
+  playback.
+- The `CameraDiscoveryController` exposes `Loading/Loaded/Empty/Error` states,
+  runs discovery when the shared connection becomes `Connected` with a new
+  transport, and supports a manual Refresh that re-discovers without
+  re-probing the connection. No continuous polling was added.
+- Logs contain only sanitized operational data (transport, camera count,
+  success/failure, streams warning). The full `/api/config` and
+  `/api/go2rtc/streams` payloads are never logged.
+
+**Validation:** `go test ./...`, `go vet ./...`, `./gradlew clean test lint
+:app:assembleDebug` all green. New unit tests cover display-name resolution
+(present, absent, null, empty, whitespace-only), enabled parsing, disabled
+exclusion, empty configs, extra-field tolerance, invalid payloads, HTTP and
+transport errors, LOCAL vs TAILSCALE getter routing, controller state machine
+behavior (discovery on connect, transport switch, refresh, failure, stop/
+cancel), and the playable matrix: enabled + matching stream -> `playable=true`,
+enabled without stream -> `playable=false` and kept, multiple cameras with a
+subset of streams, disabled exclusion, no enabled cameras -> `Empty`, empty
+streams -> `Loaded` all `playable=false`, streams endpoint failure -> cameras
+preserved with `streamsWarning`, and matching by id rather than stream order /
+first stream.
+
+**Validated (physical device, 2026-08-12):** the V1.2 acceptance criteria were
+confirmed on the real install on both LAN and outside the home LAN. The app
+resolved exactly the enabled cameras (`backyard`, `hall`, `gate`) and excluded
+the disabled `garage` camera. Friendly names rendered in the provisional list
+and the camera key fallback was not needed. Every enabled camera had a matching
+go2rtc stream by exact key/name equality, so all resolved `playable=true` on
+both transports. No divergence between camera key and stream name was observed;
+if that ever occurs on another install, the mapping rule must be decided from
+the observed payload rather than guessed.
+
 ### 2026-08-12 — V1.1 first-run setup implemented without touching the POC network/playback stack
 
 **Context:** V1.0 shipped the screen-capable foundation (shared connection

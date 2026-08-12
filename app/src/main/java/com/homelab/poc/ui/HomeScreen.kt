@@ -34,6 +34,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.unit.dp
 import com.homelab.poc.R
+import com.homelab.poc.controller.CameraDiscoveryController
 import com.homelab.poc.controller.FrigateConnectionController
 import com.homelab.poc.core.frigate.FrigateConnection
 import com.homelab.poc.core.frigate.TransportKind
@@ -49,6 +50,7 @@ import kotlinx.coroutines.launch
 @Composable
 fun HomeScreen(
     controller: FrigateConnectionController,
+    cameraDiscovery: CameraDiscoveryController,
     settings: AppSettings,
     onOpenSettings: () -> Unit,
 ) {
@@ -124,6 +126,8 @@ fun HomeScreen(
                         ),
                         style = MaterialTheme.typography.bodyLarge,
                     )
+                    Spacer(Modifier.height(16.dp))
+                    CameraDiscoverySection(cameraDiscovery)
                     Spacer(Modifier.height(16.dp))
                     LiveView(
                         baseUrl = persistedBaseUrl.trim(),

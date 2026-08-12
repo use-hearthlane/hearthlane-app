@@ -19,9 +19,10 @@ import java.net.URI
  * prefix) is caught by the web UI SPA and returns HTML, so the prefix is
  * mandatory.
  *
- * Only the first stream is returned: the POC plays a single camera. The first
- * stream is the first top-level key in document order, so the selection is
- * deterministic and matches the order go2rtc reports its configured streams.
+ * Two callers exist: camera discovery enumerates **all** stream names
+ * ([streamNames]) to resolve per-camera playability by exact id match, while
+ * the provisional Live View spike still uses [firstStreamName] (first key in
+ * document order) until V1.3 routes a selected camera to playback.
  */
 class Go2RtcStreams(private val getter: HttpBytesGetter) {
 
@@ -29,14 +30,30 @@ class Go2RtcStreams(private val getter: HttpBytesGetter) {
      * Returns the name of the first available go2rtc stream, or null when
      * Frigate reports no streams.
      *
+     * Kept for the provisional Live View spike, which plays a single camera
+     * until V1.3 routes a selected camera to playback.
+     *
      * @throws Exception when the request fails or returns a non-2xx status.
      */
     suspend fun firstStreamName(baseUrl: String, timeoutMs: Long): String? {
+        return streamNames(baseUrl, timeoutMs).firstOrNull()
+    }
+
+    /**
+     * Returns the set of all go2rtc stream names in document order, or an
+     * empty set when Frigate reports no streams.
+     *
+     * Used by camera discovery to resolve per-camera playability with an exact
+     * camera id / stream name match.
+     *
+     * @throws Exception when the request fails or returns a non-2xx status.
+     */
+    suspend fun streamNames(baseUrl: String, timeoutMs: Long): Set<String> {
         val result = getter.getBytes("$baseUrl/api/go2rtc/streams", timeoutMs)
         if (result.statusCode !in 200..299) {
             throw IOException("GET /api/go2rtc/streams -> HTTP ${result.statusCode}")
         }
-        return firstTopLevelKey(result.body.toString(Charsets.UTF_8))
+        return topLevelKeys(result.body.toString(Charsets.UTF_8))
     }
 
     /**
@@ -100,12 +117,14 @@ class Go2RtcStreams(private val getter: HttpBytesGetter) {
         }
 
         /**
-         * Returns the first top-level key of a JSON object, in document order.
-         * Handles string values and nested objects/arrays at any depth; returns
-         * null for empty or non-object payloads. Kept dependency-free so the
-         * module stays JVM-testable without a JSON library.
+         * Returns the top-level keys of a JSON object, in document order, as
+         * a set. Handles string values and nested objects/arrays at any depth;
+         * returns an empty set for empty or non-object payloads. Kept
+         * dependency-free so the module stays JVM-testable without a JSON
+         * library.
          */
-        fun firstTopLevelKey(json: String): String? {
+        fun topLevelKeys(json: String): Set<String> {
+            val keys = LinkedHashSet<String>()
             var depth = 0
             var inString = false
             var keyStart = -1
@@ -118,11 +137,10 @@ class Go2RtcStreams(private val getter: HttpBytesGetter) {
                         '"' -> {
                             inString = false
                             if (keyStart >= 0) {
-                                val key = json.substring(keyStart, i)
                                 var j = i + 1
                                 while (j < json.length && json[j].isWhitespace()) j++
                                 if (j < json.length && json[j] == ':') {
-                                    return key
+                                    keys.add(json.substring(keyStart, i))
                                 }
                                 keyStart = -1
                                 i = j
@@ -141,7 +159,13 @@ class Go2RtcStreams(private val getter: HttpBytesGetter) {
                 }
                 i++
             }
-            return null
+            return keys
         }
+
+        /**
+         * Returns the first top-level key of a JSON object, in document
+         * order, or null for empty or non-object payloads.
+         */
+        fun firstTopLevelKey(json: String): String? = topLevelKeys(json).firstOrNull()
     }
 }

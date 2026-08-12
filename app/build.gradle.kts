@@ -41,6 +41,11 @@ android {
         compose = true
         buildConfig = true
     }
+
+    testOptions {
+        // Allow android.util.Log calls to be no-ops in JVM unit tests.
+        unitTests.isReturnDefaultValues = true
+    }
 }
 
 kotlin {

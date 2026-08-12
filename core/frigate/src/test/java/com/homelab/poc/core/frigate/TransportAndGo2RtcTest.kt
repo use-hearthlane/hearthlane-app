@@ -70,6 +70,51 @@ class TransportAndGo2RtcTest {
     }
 
     @Test
+    fun `streamNames returns all top-level stream names in document order`() = runTest {
+        val getter = HttpBytesGetter { url, _ ->
+            HttpBytesResult(
+                200,
+                "application/json",
+                url,
+                """{"back":{"name":"back","src":"rtsp://x"},"hall":[1,2],"gate":"rtmp://y"}""".toByteArray(),
+            )
+        }
+        val streams = Go2RtcStreams(getter)
+
+        val names = streams.streamNames(config.tailscaleBaseUrl, 5000)
+
+        assertEquals(setOf("back", "hall", "gate"), names)
+    }
+
+    @Test
+    fun `streamNames is empty for an empty streams object`() = runTest {
+        val getter = HttpBytesGetter { url, _ ->
+            HttpBytesResult(200, "application/json", url, "{}".toByteArray())
+        }
+
+        val names = Go2RtcStreams(getter).streamNames(config.localBaseUrl, 5000)
+
+        assertEquals(emptySet<String>(), names)
+    }
+
+    @Test
+    fun `streamNames propagates a non-2xx response`() = runTest {
+        val getter = HttpBytesGetter { url, _ ->
+            HttpBytesResult(500, "text/plain", url, ByteArray(0))
+        }
+        val streams = Go2RtcStreams(getter)
+
+        var thrown: Exception? = null
+        try {
+            streams.streamNames(config.localBaseUrl, 5000)
+        } catch (e: Exception) {
+            thrown = e
+        }
+        assertNotNull("a non-2xx streams response must raise", thrown)
+        assertTrue(thrown!!.message.orEmpty().contains("HTTP 500"))
+    }
+
+    @Test
     fun `go2rtc discovery propagates non-2xx as an error`() = runTest {
         val getter = HttpBytesGetter { url, _ ->
             HttpBytesResult(403, "application/json", url, ByteArray(0))
@@ -167,6 +212,20 @@ class TransportAndGo2RtcTest {
         assertNull(Go2RtcStreams.firstTopLevelKey("[]"))
         assertEquals("only", Go2RtcStreams.firstTopLevelKey("""{"only":"string-value"}"""))
         assertEquals("num", Go2RtcStreams.firstTopLevelKey("""{"num":42}"""))
+    }
+
+    @Test
+    fun `topLevelKeys collects every key, not only the first`() {
+        assertEquals(
+            setOf("back", "hall", "gate"),
+            Go2RtcStreams.topLevelKeys("""{"back":{"name":"back"},"hall":{},"gate":"rtmp://y"}"""),
+        )
+        assertEquals(emptySet<String>(), Go2RtcStreams.topLevelKeys("{}"))
+        assertEquals(emptySet<String>(), Go2RtcStreams.topLevelKeys("[]"))
+        assertEquals(
+            setOf("a", "b"),
+            Go2RtcStreams.topLevelKeys("""{"a":{"nested":{"deep":[1,2,3]}},"b":"x"}"""),
+        )
     }
 
     /** Records how many media/playback requests hit the gateway. */
