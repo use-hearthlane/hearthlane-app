@@ -7,11 +7,16 @@ import androidx.compose.runtime.mutableStateListOf
  * small and must be checked exhaustively by the compiler, with no new
  * dependency.
  *
- * V1.0 ships only the Home shell; Live View, Diagnostics and Settings arrive in
- * later milestones and are added here as new objects.
+ * V1.0 ships the Home shell. V1.1 adds the Setup screen: it is both the
+ * first-run gate and the Settings/Admin re-entry for editing the server URL.
+ * Live View, Diagnostics and Settings arrive in later milestones and are added
+ * here as new objects.
  */
 sealed interface Screen {
     data object Home : Screen
+
+    /** First-run administrator setup; reopened from Settings to edit the server. */
+    data object Setup : Screen
 }
 
 /**

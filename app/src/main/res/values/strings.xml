@@ -30,5 +30,20 @@
     <string name="live_view_play">Play</string>
     <string name="live_view_stop">Stop</string>
     <string name="live_view_metrics">Diagnostics: first frame %1$s, errors %2$d, bytes %3$d, recoveries %4$d</string>
+
+    <string name="setup_title">Initial setup</string>
+    <string name="settings_title">Server settings</string>
+    <string name="setup_subtitle">One-time administrator setup. Enter the address of your home camera server.</string>
+    <string name="setup_url_label">Frigate server address</string>
+    <string name="setup_enter_config">Enter the server address and test the connection.</string>
+    <string name="setup_testing">Testing connection…</string>
+    <string name="setup_connected">Connected. You can save and continue.</string>
+    <string name="setup_enrollment_hint">This device needs to be enrolled before it can reach your home server.</string>
+    <string name="setup_failed">Connection failed. Check the address and try again.</string>
+    <string name="setup_test_button">Test connection</string>
+    <string name="setup_retry_button">Test again</string>
+    <string name="setup_finish_button">Save and continue</string>
+    <string name="settings_button">Settings</string>
+    <string name="back_button">Back</string>
 </resources>
 

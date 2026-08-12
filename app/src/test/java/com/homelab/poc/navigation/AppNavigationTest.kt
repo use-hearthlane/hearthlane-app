@@ -35,4 +35,22 @@ class AppNavigationTest {
         navigation.navigateBack()
         assertEquals("after reset the stack has exactly one screen", Screen.Home, navigation.current)
     }
+
+    @Test
+    fun `Setup is reachable from Home and pops back`() {
+        val navigation = AppNavigation()
+        navigation.navigateTo(Screen.Setup)
+        assertEquals(Screen.Setup, navigation.current)
+        navigation.navigateBack()
+        assertEquals(Screen.Home, navigation.current)
+    }
+
+    @Test
+    fun `resetTo Home clears the Setup route`() {
+        val navigation = AppNavigation()
+        navigation.navigateTo(Screen.Setup)
+        navigation.resetTo(Screen.Home)
+        navigation.navigateBack()
+        assertEquals("Setup must not remain on the stack after a reset", Screen.Home, navigation.current)
+    }
 }

@@ -541,6 +541,71 @@ These questions must be answered by implementation experiments, not speculation.
 
 Append decisions here as experiments complete.
 
+### 2026-08-12 — V1.1 first-run setup implemented without touching the POC network/playback stack
+
+**Context:** V1.0 shipped the screen-capable foundation (shared connection
+controller, persisted settings, sealed-class navigation, sanitized diagnostics
+report). V1.1 adds the first-run administrator setup gate.
+
+**Decision:**
+
+- `AppSettings` gains a single new persisted flag `setup_complete`
+  (`booleanPreferencesKey`, Preferences DataStore). The app gates on it: while
+  false only the setup screen shows; after it is set, normal use goes straight
+  to Home and never asks about infrastructure again. No new persistence layer.
+- A new pure `SetupFlow` state machine (`app/setup`) models the gate
+  (`shouldShowSetup`) and the probe transitions: `EnterConfig` -> `Testing` ->
+  `Connected` | `EnrollmentRequired` | `Failed`. The probe is injected; the
+  production probe is `FrigateConnectionController.testConnection(url)`, which
+  reuses the exact `FrigateConnectionManager` construction shared by
+  `connect()` (extracted into `runConnect`) — no connectivity or enrollment
+  logic is duplicated.
+- `Screen.Setup` is the only new route. As the first-run gate it has no back
+  stack entry (system back does nothing); reopened from Home's discreet
+  Settings button it pushes/pops normally. The shared controller is only
+  started (network callback) inside the Home branch, so no background re-probe
+  runs while the admin configures the server.
+- The URL is committed to settings only when the admin finishes after a
+  successful probe, so abandoning the reopened screen leaves the existing
+  configuration intact; editing the URL after a result invalidates it
+  (`SetupFlow.reset`), so an untested value can never be saved.
+- Enrollment stays the proven interactive flow (probe -> `TailscaleAuthRequired`
+  -> URL in the result). The URL is displayed and opened only in the explicit
+  admin enrollment section (`SetupScreen.EnrollmentSection`); it is never
+  written to logcat (existing guarantee re-verified). Setup failure text stays
+  simple; the raw error is only exposed via the copy action, and failures are
+  recorded in the controller's `lastError` for the future Diagnostics screen.
+
+**Validation:** `go test ./...`, `go vet ./...`, `./gradlew clean test lint
+:app:assembleDebug` all green (30 app-module unit tests). New tests cover the
+setup state machine (success, enrollment then retry, failure keeps setup open,
+in-flight guard, URL invalidation), the setup-complete persistence round-trip,
+the navigation route, and the existing sanitized-diagnostics guarantee. APK
+scan confirms no `tskey-` auth key and no enrollment URL (a concrete
+`login.tailscale.com/a/...` link) in the app code; the bare
+`login.tailscale.com` constant in `libgojni.so` is the Tailscale library's own
+interactive-auth host, unchanged from V1.0.
+
+**Validated (physical device, 2026-08-12):**
+
+- **Setup gate:** a fresh install lands on the setup screen and nothing else
+  is reachable until setup completes; after completion the app opens straight
+  to Home and never asks about infrastructure again.
+- **setupComplete persistence:** completing setup persists the flag (Preferences
+  DataStore); killing and relaunching the app, and reinstalling over, both skip
+  setup and go to Home.
+- **Re-entry via Settings:** Home's discreet Settings button reopens the setup
+  screen with the existing Frigate URL pre-filled; the saved configuration is
+  intact, testing the URL works, and saving returns to the app.
+- **Enrollment/fallback:** the interactive enrollment flow (probe ->
+  `TailscaleAuthRequired` -> login URL) works; the "Open login URL" action
+  completes enrollment and the following test succeeds. LOCAL and TAILSCALE
+  behave exactly as in V1.0.
+- **No enrollment/auth URL in logs:** `adb logcat` across the full setup and
+  enrollment run shows no enrollment or auth URL. The app code never logs it
+  (re-verified); the only `login.tailscale.com` occurrence is the library
+  constant above.
+
 ### 2026-08-12 — V1.0 product foundation implemented without touching the POC network/playback stack
 
 **Context:** The POC (embedded Tailscale + transparent Frigate connectivity +

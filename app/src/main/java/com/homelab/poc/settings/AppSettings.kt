@@ -3,6 +3,7 @@ package com.homelab.poc.settings
 import android.content.Context
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
+import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
@@ -47,6 +48,12 @@ class AppSettings(
     private val _nodeSuffix = MutableStateFlow("")
     val nodeSuffix: StateFlow<String> = _nodeSuffix.asStateFlow()
 
+    /** True once the administrator completed the V1.1 initial setup. The app
+     *  gates on this: setup shows until it is set, then normal use never asks
+     *  about infrastructure again. */
+    private val _setupComplete = MutableStateFlow(false)
+    val setupComplete: StateFlow<Boolean> = _setupComplete.asStateFlow()
+
     init {
         scope.launch {
             val prefs = dataStore.data.first()
@@ -65,6 +72,8 @@ class AppSettings(
             }
             _nodeSuffix.value = suffix
 
+            _setupComplete.value = prefs[SETUP_COMPLETE] ?: false
+
             _ready.value = true
         }
     }
@@ -75,6 +84,12 @@ class AppSettings(
         val trimmed = url.trim()
         _baseUrl.value = trimmed
         dataStore.edit { it[BASE_URL] = trimmed }
+    }
+
+    /** Marks the V1.1 initial setup as complete (or reopens it when false). */
+    suspend fun setSetupComplete(complete: Boolean) {
+        _setupComplete.value = complete
+        dataStore.edit { it[SETUP_COMPLETE] = complete }
     }
 
     companion object {
@@ -107,5 +122,6 @@ class AppSettings(
 
         private val BASE_URL = stringPreferencesKey("frigate_base_url")
         private val NODE_SUFFIX = stringPreferencesKey("node_hostname_suffix")
+        private val SETUP_COMPLETE = booleanPreferencesKey("setup_complete")
     }
 }

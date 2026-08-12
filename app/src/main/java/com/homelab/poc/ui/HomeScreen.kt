@@ -50,6 +50,7 @@ import kotlinx.coroutines.launch
 fun HomeScreen(
     controller: FrigateConnectionController,
     settings: AppSettings,
+    onOpenSettings: () -> Unit,
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -185,6 +186,12 @@ fun HomeScreen(
                             else R.string.connect_button,
                         ),
                     )
+                }
+                Spacer(Modifier.height(16.dp))
+                // Discreet administrator entry point: reopens the setup screen
+                // to edit the Frigate server URL (V1.1).
+                TextButton(onClick = onOpenSettings) {
+                    Text(stringResource(R.string.settings_button))
                 }
             }
         }

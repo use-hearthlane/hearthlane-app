@@ -67,4 +67,50 @@ class AppSettingsTest {
         val suffixes = (1..1000).map { AppSettings.generateSuffix() }.toSet()
         assertEquals(1000, suffixes.size)
     }
+
+    @Test
+    fun `setup complete defaults to false on first run`() = runTest {
+        val settings = AppSettings.createForTest(
+            dataStore = dataStore(backgroundScope),
+            defaultBaseUrl = "http://frigate:5000",
+            scope = backgroundScope,
+        )
+
+        settings.ready.first { it }
+
+        assertEquals(
+            "a fresh installation must be gated on the initial setup",
+            false,
+            settings.setupComplete.value,
+        )
+    }
+
+    @Test
+    fun `setup complete is persisted across instances`() = runTest {
+        val store = dataStore(backgroundScope)
+        val settings = AppSettings.createForTest(store, "http://default:5000", backgroundScope)
+        settings.ready.first { it }
+        assertEquals(false, settings.setupComplete.value)
+
+        settings.setSetupComplete(true)
+
+        val reloaded = AppSettings.createForTest(store, "http://default:5000", backgroundScope)
+        reloaded.ready.first { it }
+        assertEquals("setup must stay complete across app restarts", true, reloaded.setupComplete.value)
+    }
+
+    @Test
+    fun `url and setup flag round-trip together`() = runTest {
+        val store = dataStore(backgroundScope)
+        val settings = AppSettings.createForTest(store, "http://default:5000", backgroundScope)
+        settings.ready.first { it }
+
+        settings.setBaseUrl("http://site.omni.corp")
+        settings.setSetupComplete(true)
+
+        val reloaded = AppSettings.createForTest(store, "http://default:5000", backgroundScope)
+        reloaded.ready.first { it }
+        assertEquals("http://site.omni.corp", reloaded.baseUrl.value)
+        assertEquals(true, reloaded.setupComplete.value)
+    }
 }

@@ -113,19 +113,9 @@ class FrigateConnectionController(
         if (_connecting.value) return
         _connecting.value = true
         val baseUrl = settings.baseUrl.value
-        val config = FrigateConfig(
-            localBaseUrl = baseUrl,
-            tailscaleBaseUrl = baseUrl,
-        )
         Log.i(TAG, "connect requested (baseUrl=$baseUrl, restartPlayback=$restartPlayback)")
         scope.launch {
-            val manager = FrigateConnectionManager(
-                config = config,
-                localTransport = LocalTransport(config),
-                tailscaleTransport = TailscaleTransport(gateway, config),
-                tailscaleGateway = gateway,
-            )
-            val result = withContext(Dispatchers.IO) { manager.connect() }
+            val result = withContext(Dispatchers.IO) { runConnect(baseUrl) }
             if (result is FrigateConnection.Connected) {
                 val previous = _lastProbedTransport.value
                 val switched = previous != null && previous != result.transport
@@ -147,6 +137,36 @@ class FrigateConnectionController(
             _connecting.value = false
             if (restartPlayback) _connectAttempt.update { it + 1 } else _networkTick.update { it + 1 }
         }
+    }
+
+    /**
+     * Runs the proven [FrigateConnectionManager] strategy for [baseUrl] and
+     * returns the raw result. Used by the V1.1 setup flow: it reuses exactly
+     * the same probe path as [connect] without touching the shared
+     * [connection]/[connecting] flows or the playback ticks, so a setup test
+     * never disturbs normal session state. Failures are recorded in
+     * [lastError] for the Diagnostics report.
+     */
+    suspend fun testConnection(baseUrl: String): FrigateConnection {
+        val result = withContext(Dispatchers.IO) { runConnect(baseUrl) }
+        if (result is FrigateConnection.Failed) _lastError.value = result.error
+        return result
+    }
+
+    /** The single construction of the transparent connection strategy, shared
+     *  by [connect] and [testConnection] so the probe path is never forked. */
+    private suspend fun runConnect(baseUrl: String): FrigateConnection {
+        val config = FrigateConfig(
+            localBaseUrl = baseUrl,
+            tailscaleBaseUrl = baseUrl,
+        )
+        val manager = FrigateConnectionManager(
+            config = config,
+            localTransport = LocalTransport(config),
+            tailscaleTransport = TailscaleTransport(gateway, config),
+            tailscaleGateway = gateway,
+        )
+        return manager.connect()
     }
 
     /**
