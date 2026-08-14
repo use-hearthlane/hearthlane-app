@@ -8,6 +8,7 @@ import com.homelab.poc.core.frigate.TsnetGateway
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
+import java.io.File
 import java.io.IOException
 
 /**
@@ -90,6 +91,18 @@ class TsnetGatewayImpl(
         withContext(Dispatchers.IO) {
             TailscaleBridge.httpGet(url, timeoutMs)
         }
+
+    override suspend fun reset() {
+        withContext(Dispatchers.IO) {
+            Log.i(TAG, "resetting embedded Tailscale node identity")
+            runCatching { TailscaleBridge.stop() }
+                .onFailure { Log.w(TAG, "stop during reset failed; state will still be cleared", it) }
+            // The enrolled identity lives in the node state directory. Deleting
+            // it makes the next start a fresh, unauthenticated node while the
+            // persisted per-installation hostname suffix is untouched.
+            File(stateDir).deleteRecursively()
+        }
+    }
 
     override suspend fun httpGetBytes(url: String, timeoutMs: Long) =
         withContext(Dispatchers.IO) {

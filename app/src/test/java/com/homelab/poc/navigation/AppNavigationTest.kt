@@ -70,4 +70,25 @@ class AppNavigationTest {
         val current = navigation.current as Screen.Live
         assertEquals("garage", current.cameraId)
     }
+
+    @Test
+    fun `Settings is reachable from Home and pops back`() {
+        val navigation = AppNavigation()
+        navigation.navigateTo(Screen.Settings)
+        assertEquals(Screen.Settings, navigation.current)
+        navigation.navigateBack()
+        assertEquals(Screen.Home, navigation.current)
+    }
+
+    @Test
+    fun `Diagnostics is reachable from Settings and pops back through it`() {
+        val navigation = AppNavigation()
+        navigation.navigateTo(Screen.Settings)
+        navigation.navigateTo(Screen.Diagnostics)
+        assertEquals(Screen.Diagnostics, navigation.current)
+        navigation.navigateBack()
+        assertEquals("back from Diagnostics lands on Settings", Screen.Settings, navigation.current)
+        navigation.navigateBack()
+        assertEquals(Screen.Home, navigation.current)
+    }
 }

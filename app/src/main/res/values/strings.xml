@@ -36,6 +36,28 @@
     <string name="back_button">Back</string>
     <string name="refresh_button">Refresh cameras</string>
 
+    <!-- Settings / Advanced (V1.5, administrator-facing) -->
+    <string name="settings_screen_title">Settings</string>
+    <string name="settings_app_info_title">App information</string>
+    <string name="settings_app_version">Version %1$s</string>
+    <string name="settings_app_build">Build %1$s</string>
+    <string name="settings_advanced_title">Advanced</string>
+    <string name="settings_node_hostname">Node hostname: %1$s</string>
+    <string name="settings_admin_title">Administrator</string>
+    <string name="settings_server_row">Server settings</string>
+    <string name="settings_diagnostics_row">Diagnostics</string>
+    <string name="settings_reset_tailscale">Reset Tailscale node</string>
+    <string name="settings_reset_confirm_title">Reset Tailscale node?</string>
+    <string name="settings_reset_confirm_body">This clears the node identity. The next connection test will enroll this device again before it can reach your home server outside the home network.</string>
+    <string name="confirm_button">Reset</string>
+    <string name="cancel_button">Cancel</string>
+
+    <!-- Diagnostics (V1.5, administrator-facing) -->
+    <string name="diagnostics_title">Diagnostics</string>
+    <string name="diagnostics_copy_button">Copy diagnostics</string>
+    <string name="diagnostics_copied">Copied</string>
+    <string name="diagnostics_retry_connection">Retry connection</string>
+
     <!-- Home screen (family-facing) -->
     <string name="home_title">Cameras</string>
     <string name="home_connecting">Connecting…</string>

@@ -161,6 +161,23 @@ class FrigateConnectionController internal constructor(
     }
 
     /**
+     * Clears the embedded node identity so the next probe re-enrolls
+     * interactively, and resets the shared session state. Used by the
+     * administrator Settings reset. The node keeps its hostname (the
+     * persisted per-installation suffix is untouched) but loses its enrolled
+     * identity; the transport counters are preserved as diagnostics history.
+     */
+    fun resetTailscale() {
+        scope.launch {
+            runCatching { gateway.reset() }
+                .onFailure { Log.w(TAG, "tailscale identity reset failed", it) }
+            _connection.value = null
+            _lastProbedTransport.value = null
+            _lastError.value = null
+        }
+    }
+
+    /**
      * Runs the proven [FrigateConnectionManager] strategy for [baseUrl] and
      * returns the raw result. Used by the V1.1 setup flow: it reuses exactly
      * the same probe path as [connect] without touching the shared

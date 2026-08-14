@@ -18,9 +18,16 @@ class FakeTsnetGateway(
 
     val requestedUrls = mutableListOf<String>()
 
+    /** How many times [reset] was called (administrator node reset). */
+    var resetCount = 0
+
     override suspend fun ensureRunning() = Unit
 
     override suspend fun stopIfRunning() = Unit
+
+    override suspend fun reset() {
+        resetCount++
+    }
 
     override suspend fun httpGet(url: String, timeoutMs: Long): String {
         requestedUrls.add(url)

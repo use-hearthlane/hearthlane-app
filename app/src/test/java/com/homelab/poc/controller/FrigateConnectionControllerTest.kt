@@ -227,6 +227,38 @@ class FrigateConnectionControllerTest {
         )
     }
 
+    @Test
+    fun `resetTailscale clears the node identity and the shared session state`() = runTest {
+        val gateway = com.homelab.poc.test.FakeTsnetGateway()
+        val connectivityManager = ApplicationProvider
+            .getApplicationContext<android.app.Application>()
+            .getSystemService(ConnectivityManager::class.java)
+        val dispatcher = StandardTestDispatcher(this.testScheduler)
+        val controller = FrigateConnectionController(
+            gateway = gateway,
+            settings = createSettings(),
+            connectivityManager = connectivityManager,
+            scope = this,
+            connector = { FrigateConnection.Connected(TransportKind.TAILSCALE, "0.17.1") },
+            ioDispatcher = dispatcher,
+        )
+
+        controller.connect(restartPlayback = false)
+        advanceUntilIdle()
+        assertEquals(
+            FrigateConnection.Connected(TransportKind.TAILSCALE, "0.17.1"),
+            controller.connection.value,
+        )
+
+        controller.resetTailscale()
+        advanceUntilIdle()
+
+        assertEquals("the administrator reset must clear the node identity", 1, gateway.resetCount)
+        assertNull("the shared connection state must be cleared after a reset", controller.connection.value)
+        assertNull("the probed transport must be cleared after a reset", controller.lastProbedTransport.value)
+        assertNull("the recorded error must be cleared after a reset", controller.lastError.value)
+    }
+
     private fun authRequired(controller: FrigateConnectionController): Boolean {
         val failed = controller.connection.value as? FrigateConnection.Failed
         return failed?.authRequired == true

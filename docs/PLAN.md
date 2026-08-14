@@ -541,6 +541,63 @@ These questions must be answered by implementation experiments, not speculation.
 
 Append decisions here as experiments complete.
 
+### 2026-08-14 — V1.5 Diagnostics and Settings screens implemented
+
+**Context:** the family-facing Home UI introduced in V1.3/V1.4 intentionally hides
+infrastructure details, but administrators still need visibility and controls
+(enrollment reset, connection test, copyable diagnostics) without exposing
+infrastructure language to the normal viewing flow. V1.5 adds a Diagnostics
+screen and a Settings screen while keeping the normal Home/Live UX unchanged.
+
+**Decisions:**
+
+- **App-lifetime playback metrics:** `PlaybackSnapshotStore` (app module) keeps a
+  running snapshot of playback state, last error, time-to-first-frame, error
+  count, bytes transferred and recovery count. It accumulates counters across
+  player sessions and retains the latest non-null first-frame time and the most
+  recent error message. This snapshot is recorded when `LiveView` disposes the
+  player, so the Diagnostics screen can show lifetime stats without coupling UI
+  code to the player internals.
+- **Pure diagnostics builder:** `DiagnosticsSnapshotBuilder` (app module) maps
+  the connection/connecting/transport state into the existing
+  `DiagnosticsReport.Snapshot`. Labels translate implementation state into
+  readable diagnostics text (e.g. `Connected (TAILSCALE)`, `authenticating` when
+  enrollment is pending, `disconnected` when LOCAL is in use). The builder has no
+  side effects and no Android dependencies, so it is fully unit-testable.
+- **Sanitized Copy diagnostics:** `DiagnosticsScreen` renders the report through
+  the existing `DiagnosticsReport.build()`, which removes auth URLs and other
+  sensitive substrings before anything is copied to the clipboard. The copied
+  output is safe to share; no enrollment URLs or tokens leak.
+- **Settings entry point:** a discreet settings gear on `HomeScreen` opens
+  `Screen.Settings`. Settings contains app information (version/build), an
+  Advanced section (node hostname override for debugging), and an Administrator
+  section with: Server settings (reuses the existing Setup flow to edit/test the
+  Frigate URL), Diagnostics (opens `Screen.Diagnostics`), and Reset Tailscale
+  node.
+- **Tailscale reset flow:** `TsnetGateway` gained `reset()`, implemented in
+  `TsnetGatewayImpl` by stopping the Go node and deleting the persistent Tailscale
+  state directory. `FrigateConnectionController.resetTailscale()` calls
+  `gateway.reset()` and clears the controller's session state
+  (`connection`, `lastProbedTransport`, `lastError`). The Settings Reset action
+  then navigates to `Screen.Setup`, forcing interactive re-enrollment with a
+  fresh node identity. No long-lived auth key is stored or reused.
+- **Transport terms stay in Diagnostics:** the only user-visible places that
+  show `LOCAL`/`TAILSCALE` are the Diagnostics screen and debug/admin logs. The
+  Home/Live product UI continues to use family-friendly language only.
+
+**Validation:** `go test ./...` and `go vet ./...` green. Full
+`./gradlew test lint :app:assembleDebug` green. New unit tests cover:
+`FrigateConnectionController.resetTailscale` clears session state and delegates
+node reset; `PlaybackSnapshotStore` accumulation, retention and error handling;
+`DiagnosticsSnapshotBuilder` label mapping for every state combination,
+pass-through of playback counters, and final report sanitization that strips
+`login.tailscale.com` auth URLs; `AppNavigation` routing to/from `Settings` and
+`Diagnostics`.
+
+**Status:** Implementation complete. Physical-device acceptance (copy report is
+sanitized, reset re-enrolls successfully, connection test works from Settings)
+remains to be validated on a real device outside the home LAN.
+
 ### 2026-08-14 — TAILSCALE playback instability root cause: per-segment tailnet DNS re-resolution; DNS cache + TCP-first policy
 
 **Symptom:** During live playback over TAILSCALE, ExoPlayer reported
@@ -603,12 +660,12 @@ to the conservative fixed TTL for zero-TTL answers (cache now actually caches).
 The same log showed three concurrent `cache miss` lines at startup, so a simple
 per-hostname miss serialization was added (mutex + post-lock re-check).
 
-**Status:** NOT marked resolved. Pending physical-device validation: LOCAL ->
-TAILSCALE switch during live playback, 10-15 minutes of remote playback with no
-new tailnet DNS timeouts or `ERROR_CODE_IO_UNSPECIFIED`, TAILSCALE -> LOCAL
-switch still working, and the transport label matching the real transport. If
-TCP dial timeouts persist with the cache active, report before raising the 2s
-budget.
+**Status:** RESOLVED (2026-08-14). The pending physical-device validation was
+completed as part of the V1.4 validation round (final commit `052d861`): LOCAL
+-> TAILSCALE switch during live playback, TAILSCALE -> LOCAL switch, and 10-15
+minutes of remote playback all passed with no new tailnet DNS timeouts or
+`ERROR_CODE_IO_UNSPECIFIED` related to DNS, and the transport label matched the
+real transport. The 2s TCP dial budget was not raised.
 
 ### 2026-08-14 — LiveView recovery policy: auto-recover everything except 5xx/404; explicit Retry button
 

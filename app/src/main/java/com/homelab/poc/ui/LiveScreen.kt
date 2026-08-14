@@ -14,6 +14,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import com.homelab.poc.R
+import com.homelab.poc.controller.PlaybackSnapshotStore
 import com.homelab.poc.core.frigate.TransportKind
 import com.homelab.poc.core.frigate.TsnetGateway
 
@@ -34,6 +35,7 @@ internal fun LiveScreen(
     transport: TransportKind,
     connectAttempt: Int,
     networkTick: Int,
+    playbackSnapshotStore: PlaybackSnapshotStore? = null,
     onBack: () -> Unit,
 ) {
     Scaffold(
@@ -62,6 +64,7 @@ internal fun LiveScreen(
                 connectAttempt = connectAttempt,
                 networkTick = networkTick,
                 modifier = Modifier.fillMaxWidth(),
+                playbackSnapshotStore = playbackSnapshotStore,
             )
         }
     }

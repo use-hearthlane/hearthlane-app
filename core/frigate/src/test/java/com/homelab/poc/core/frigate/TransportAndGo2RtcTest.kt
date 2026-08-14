@@ -297,6 +297,7 @@ class TransportAndGo2RtcTest {
 
         override suspend fun ensureRunning() = Unit
         override suspend fun stopIfRunning() = Unit
+        override suspend fun reset() = Unit
         override suspend fun httpGet(url: String, timeoutMs: Long): String = "0.17.1"
 
         override suspend fun httpGetBytes(url: String, timeoutMs: Long): HttpBytesResult {

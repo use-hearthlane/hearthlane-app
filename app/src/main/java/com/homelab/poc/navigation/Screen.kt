@@ -9,14 +9,20 @@ import androidx.compose.runtime.mutableStateListOf
  *
  * V1.0 ships the Home shell. V1.1 adds the Setup screen: it is both the
  * first-run gate and the Settings/Admin re-entry for editing the server URL.
- * Live View, Diagnostics and Settings arrive in later milestones and are added
- * here as new objects.
+ * V1.5 adds the administrator Settings hub and the Diagnostics screen, both
+ * reached from Home via the discreet Settings entry.
  */
 sealed interface Screen {
     data object Home : Screen
 
     /** First-run administrator setup; reopened from Settings to edit the server. */
     data object Setup : Screen
+
+    /** V1.5 administrator hub: server settings, diagnostics, node reset, app info. */
+    data object Settings : Screen
+
+    /** V1.5 administrator observability screen with the sanitized report copy. */
+    data object Diagnostics : Screen
 
     /**
      * Live view for a single camera. The route identity is the camera id; the

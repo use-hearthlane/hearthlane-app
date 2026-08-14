@@ -28,6 +28,14 @@ interface TsnetGateway {
     suspend fun stopIfRunning()
 
     /**
+     * Stops the embedded node and clears its persisted identity, so the next
+     * [ensureRunning] re-enrolls interactively. Used by the administrator
+     * Settings reset; the enrollment URL is only ever surfaced through the
+     * next start's auth-required state.
+     */
+    suspend fun reset()
+
+    /**
      * Performs an HTTP GET exclusively over the tsnet network. Must never fall
      * back to the normal Android network.
      *

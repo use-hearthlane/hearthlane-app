@@ -25,9 +25,11 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import coil3.SingletonImageLoader
+import com.homelab.poc.BuildConfig
 import com.homelab.poc.R
 import com.homelab.poc.controller.CameraDiscoveryController
 import com.homelab.poc.controller.FrigateConnectionController
+import com.homelab.poc.controller.PlaybackSnapshotStore
 import com.homelab.poc.core.frigate.Camera
 import com.homelab.poc.core.frigate.CameraDiscoveryState
 import com.homelab.poc.core.frigate.FrigateConfig
@@ -107,6 +109,11 @@ fun AppRoot(
             discoverer = CameraDiscoveryController.productionDiscoverer(gateway),
         )
     }
+
+    // App-lifetime playback diagnostics accumulator for the V1.5 Diagnostics
+    // screen: the live view records finished player sessions into it.
+    val playbackSnapshotStore = remember { PlaybackSnapshotStore() }
+    val playbackSnapshot by playbackSnapshotStore.snapshot.collectAsState()
 
     val snapshotImageLoader = remember {
         SingletonImageLoader.setSafe { FrigateSnapshotImageLoader.create(context) }
@@ -188,7 +195,7 @@ fun AppRoot(
                 thumbnailFactory = thumbnailFactory,
                 snapshotImageLoader = snapshotImageLoader,
                 baseUrl = baseUrl,
-                onOpenSettings = { navigation.navigateTo(Screen.Setup) },
+                onOpenSettings = { navigation.navigateTo(Screen.Settings) },
                 onCameraSelected = { camera ->
                     selectedCamera = camera
                     navigation.navigateTo(Screen.Live(camera.id))
@@ -204,6 +211,39 @@ fun AppRoot(
                 onBack = { navigation.navigateBack() },
                 enrollmentRequired = authRequired,
                 authUrl = enrollmentAuthUrl,
+            )
+        }
+        Screen.Settings -> {
+            SettingsScreen(
+                nodeHostname = AppSettings.nodeHostname(nodeSuffix),
+                appVersion = BuildConfig.VERSION_NAME,
+                appBuild = BuildConfig.VERSION_CODE.toString(),
+                onOpenServerSettings = { navigation.navigateTo(Screen.Setup) },
+                onOpenDiagnostics = { navigation.navigateTo(Screen.Diagnostics) },
+                onResetTailscale = {
+                    // Clears the node identity, then opens the server-settings
+                    // screen so the administrator can test the connection and
+                    // complete the interactive re-enrollment.
+                    controller.resetTailscale()
+                    navigation.navigateTo(Screen.Setup)
+                },
+                onBack = { navigation.navigateBack() },
+            )
+        }
+        Screen.Diagnostics -> {
+            // The diagnostics screen shows live connectivity state, so the
+            // network-change listener stays active while it is shown (same
+            // lifecycle as Home and the live view).
+            DisposableEffect(controller) {
+                controller.start()
+                onDispose { controller.stop() }
+            }
+            DiagnosticsScreen(
+                controller = controller,
+                playbackSnapshot = playbackSnapshot,
+                appVersion = BuildConfig.VERSION_NAME,
+                onRetryConnection = { controller.connect(restartPlayback = false) },
+                onBack = { navigation.navigateBack() },
             )
         }
         is Screen.Live -> {
@@ -238,6 +278,7 @@ fun AppRoot(
                         transport = (connection as FrigateConnection.Connected).transport,
                         connectAttempt = connectAttempt,
                         networkTick = networkTick,
+                        playbackSnapshotStore = playbackSnapshotStore,
                         onBack = { navigation.navigateBack() },
                     )
                 }

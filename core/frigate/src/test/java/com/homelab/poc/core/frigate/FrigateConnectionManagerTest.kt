@@ -162,6 +162,10 @@ class FrigateConnectionManagerTest {
             }
         }
 
+        override suspend fun reset() {
+            stopIfRunning()
+        }
+
         override suspend fun httpGet(url: String, timeoutMs: Long): String = "0.15.2"
 
         override suspend fun httpGetBytes(url: String, timeoutMs: Long) =

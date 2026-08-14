@@ -131,6 +131,7 @@ class LiveViewTest {
 
         override suspend fun ensureRunning() = Unit
         override suspend fun stopIfRunning() = Unit
+        override suspend fun reset() = Unit
 
         override suspend fun httpGet(url: String, timeoutMs: Long): String {
             requestedUrls.add(url)
@@ -155,6 +156,7 @@ class LiveViewTest {
     private inner class NoStreamGateway : TsnetGateway {
         override suspend fun ensureRunning() = Unit
         override suspend fun stopIfRunning() = Unit
+        override suspend fun reset() = Unit
 
         override suspend fun httpGet(url: String, timeoutMs: Long): String =
             """{"hall":{},"front_door":{}}"""

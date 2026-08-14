@@ -36,6 +36,7 @@ import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.ui.PlayerView
 import com.homelab.poc.R
+import com.homelab.poc.controller.PlaybackSnapshotStore
 import com.homelab.poc.core.frigate.Go2RtcStreams
 import com.homelab.poc.core.frigate.TransportKind
 import com.homelab.poc.core.frigate.TsnetGateway
@@ -74,6 +75,7 @@ internal fun LiveView(
     connectAttempt: Int,
     networkTick: Int,
     modifier: Modifier = Modifier,
+    playbackSnapshotStore: PlaybackSnapshotStore? = null,
 ) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -113,6 +115,11 @@ internal fun LiveView(
     DisposableEffect(player) {
         onDispose {
             Log.i(TAG, "player released (live view left or transport switched)")
+            // Record the finished session into the app-lifetime diagnostics
+            // accumulator before the player dies with its session-scoped
+            // metrics. The store is null in tests and in compositions that do
+            // not own one.
+            playbackSnapshotStore?.record(player.state.value, player.metrics.value, recoveryCount)
             player.release()
         }
     }
