@@ -20,24 +20,12 @@ import java.net.URI
  * mandatory.
  *
  * Two callers exist: camera discovery enumerates **all** stream names
- * ([streamNames]) to resolve per-camera playability by exact id match, while
- * the provisional Live View spike still uses [firstStreamName] (first key in
- * document order) until V1.3 routes a selected camera to playback.
+ * ([streamNames]) to resolve per-camera playability by exact id match, and the
+ * Live View resolves the selected camera's stream with [streamNameForCamera].
+ * There is no "first stream" pick anywhere in the V1 flow: playback always
+ * targets the stream whose name equals the selected camera id.
  */
 class Go2RtcStreams(private val getter: HttpBytesGetter) {
-
-    /**
-     * Returns the name of the first available go2rtc stream, or null when
-     * Frigate reports no streams.
-     *
-     * Kept for the provisional Live View spike, which plays a single camera
-     * until V1.3 routes a selected camera to playback.
-     *
-     * @throws Exception when the request fails or returns a non-2xx status.
-     */
-    suspend fun firstStreamName(baseUrl: String, timeoutMs: Long): String? {
-        return streamNames(baseUrl, timeoutMs).firstOrNull()
-    }
 
     /**
      * Returns the set of all go2rtc stream names in document order, or an
@@ -55,6 +43,21 @@ class Go2RtcStreams(private val getter: HttpBytesGetter) {
         }
         return topLevelKeys(result.body.toString(Charsets.UTF_8))
     }
+
+    /**
+     * Returns the go2rtc stream name for the selected camera, or null when no
+     * stream matches.
+     *
+     * The only live-playback selection path in V1: the stream is chosen by
+     * exact camera id / stream name equality, never by stream order or by
+     * picking a first stream. The camera key equals the go2rtc stream name on
+     * the installs proven so far; if a real payload ever diverges, that
+     * divergence is reported rather than guessed (docs/PLAN.md Decision Log).
+     *
+     * @throws Exception when the request fails or returns a non-2xx status.
+     */
+    suspend fun streamNameForCamera(baseUrl: String, cameraId: String, timeoutMs: Long): String? =
+        if (cameraId in streamNames(baseUrl, timeoutMs)) cameraId else null
 
     /**
      * HLS/fMP4 live URL for a go2rtc stream, proxied through Frigate under the
@@ -161,11 +164,5 @@ class Go2RtcStreams(private val getter: HttpBytesGetter) {
             }
             return keys
         }
-
-        /**
-         * Returns the first top-level key of a JSON object, in document
-         * order, or null for empty or non-object payloads.
-         */
-        fun firstTopLevelKey(json: String): String? = topLevelKeys(json).firstOrNull()
     }
 }

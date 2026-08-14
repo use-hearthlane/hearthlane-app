@@ -23,10 +23,12 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/miekg/dns"
 	"tailscale.com/tsnet"
+	"tailscale.com/types/dnstype"
 	"tailscale.com/util/dnsname"
 	netstack "tailscale.com/wgengine/netstack"
 )
@@ -60,7 +62,120 @@ var (
 	// startServer is swapped in tests to simulate tsnet startup outcomes
 	// without requiring a real tailnet connection.
 	startServer = func(s *tsnet.Server) error { return s.Start() }
+
+	// debugDNS gates debug-level DNS logs (cache hit/miss). See SetDebugDNS.
+	debugDNS atomic.Bool
+
+	// dnsResolutionMu serializes tailnet DNS misses. Concurrent segment
+	// fetches would otherwise each resolve the hostname on a cache miss;
+	// holding the mutex around the query and re-checking the cache after
+	// acquiring it collapses those misses into a single query.
+	dnsResolutionMu sync.Mutex
+
+	// dnsUpstreamsFor returns the tailnet resolvers configured for an FQDN.
+	// Production reads them from the tsnet DNS manager; tests replace it.
+	dnsUpstreamsFor = tailnetUpstreamsFor
+
+	// dnsQuery sends a DNS query to an upstream over the tunnel and returns
+	// the parsed answer. Production uses queryTunnelDNS; tests replace it with
+	// a recorder.
+	dnsQuery = queryTunnelDNS
+
+	// udpQueryFn and tcpQueryFn are the transport primitives selected by
+	// queryTunnelDNS; tests replace them to assert transport ordering.
+	udpQueryFn = udpDNSQuery
+	tcpQueryFn = tcpDNSQuery
 )
+
+// dnsCacheTTL caps how long a resolved hostname is reused without a new query,
+// regardless of the TTL advertised by the resolver. The real answer TTL is used
+// when present, clamped to this maximum so split-DNS reconfiguration is picked
+// up within a bounded window.
+const dnsCacheTTL = 60 * time.Second
+
+// dnsAnswer is the parsed result of a tailnet DNS query: the resolved A records
+// and the smallest TTL advertised across them.
+type dnsAnswer struct {
+	ips []netip.Addr
+	ttl uint32
+}
+
+// cacheTTL returns how long answer should be cached. The homelab resolver
+// (192.168.10.2) advertises TTL 0, which would disable caching entirely and
+// bring back per-segment re-resolution, so a zero answer TTL falls back to the
+// conservative fixed dnsCacheTTL. Any TTL is clamped to dnsCacheTTL.
+func (a dnsAnswer) cacheTTL() time.Duration {
+	ttl := time.Duration(a.ttl) * time.Second
+	if ttl <= 0 {
+		ttl = dnsCacheTTL
+	}
+	if ttl > dnsCacheTTL {
+		ttl = dnsCacheTTL
+	}
+	return ttl
+}
+
+// dnsCacheEntry holds resolved addresses for a hostname until expires.
+type dnsCacheEntry struct {
+	ips     []netip.Addr
+	expires time.Time
+}
+
+// dnsCache is a small thread-safe in-memory cache for tailnet DNS
+// resolutions. It lives for the process lifetime and is never persisted.
+// Failures and empty answers are never stored (see put).
+type dnsCache struct {
+	mu      sync.Mutex
+	entries map[string]dnsCacheEntry
+}
+
+var dnsCacheInstance = &dnsCache{entries: make(map[string]dnsCacheEntry)}
+
+// get returns the first cached address for key when present and not expired.
+// Expired entries are removed lazily.
+func (c *dnsCache) get(key string) (netip.Addr, bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	e, ok := c.entries[key]
+	if !ok || time.Now().After(e.expires) || len(e.ips) == 0 {
+		delete(c.entries, key)
+		return netip.Addr{}, false
+	}
+	return e.ips[0], true
+}
+
+// put stores addresses for key, expiring after ttl. Empty address lists and
+// non-positive TTLs are ignored so failures and empty answers never enter the
+// cache.
+func (c *dnsCache) put(key string, ips []netip.Addr, ttl time.Duration) {
+	if len(ips) == 0 || ttl <= 0 {
+		return
+	}
+	// Copy so callers cannot mutate a cached entry through the returned slice.
+	ips = append([]netip.Addr(nil), ips...)
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.entries[key] = dnsCacheEntry{ips: ips, expires: time.Now().Add(ttl)}
+}
+
+// SetDebugDNS enables or disables debug-level DNS logs (cache hit/miss).
+// These are off by default; enable them while diagnosing tailnet DNS issues on
+// a device. Only hostnames and upstream addresses are logged, never secrets.
+func SetDebugDNS(enabled bool) {
+	debugDNS.Store(enabled)
+}
+
+func debugLogf(format string, args ...any) {
+	if debugDNS.Load() {
+		logf(format, args...)
+	}
+}
+
+// cacheKey derives the cache key from a normalized FQDN: lowercase, without the
+// trailing dot, so "Site.Omni.Corp." and "site.omni.corp" share one entry.
+func cacheKey(fqdn string) string {
+	return strings.ToLower(strings.TrimSuffix(fqdn, "."))
+}
 
 // Start launches an embedded Tailscale node in the background and returns
 // immediately. hostname is the tailnet hostname, authKey may be empty to use
@@ -381,24 +496,39 @@ func httpResultFromResponse(resp *http.Response) (*HttpResult, error) {
 // forwarder: on Android the forwarder reaches upstream resolvers with OS
 // sockets (SystemDial), which cannot reach a LAN DNS IP from outside the home
 // network unless the OS routing table sends it through a TUN.
+//
+// Successful tailnet resolutions are cached in memory for the answer TTL
+// (clamped to dnsCacheTTL) so HLS playback does not re-resolve the hostname on
+// every segment request. Failures and empty answers are never cached.
 func resolveHost(ctx context.Context, s *tsnet.Server, host string) (netip.Addr, error) {
 	if ip, err := netip.ParseAddr(host); err == nil {
 		return ip, nil
 	}
-	mgr := s.Sys().DNSManager.Get()
-	if mgr == nil {
-		return netip.Addr{}, errors.New("tsembed: tailnet DNS manager unavailable")
-	}
-	res := mgr.Resolver()
-	if res == nil {
-		return netip.Addr{}, errors.New("tsembed: tailnet DNS resolver unavailable")
-	}
-
 	fqdn, err := dnsname.ToFQDN(host)
 	if err != nil {
 		return netip.Addr{}, fmt.Errorf("tsembed: invalid hostname %q: %w", host, err)
 	}
-	upstreams := res.GetUpstreamResolvers(fqdn)
+	key := cacheKey(string(fqdn))
+	if ip, ok := dnsCacheInstance.get(key); ok {
+		debugLogf("dns cache hit for %q", host)
+		return ip, nil
+	}
+	debugLogf("dns cache miss for %q", host)
+
+	// Serialize misses: another goroutine may be resolving the same hostname
+	// right now, so after acquiring the lock the cache is checked again and a
+	// freshly populated entry is reused instead of querying again.
+	dnsResolutionMu.Lock()
+	defer dnsResolutionMu.Unlock()
+	if ip, ok := dnsCacheInstance.get(key); ok {
+		debugLogf("dns cache hit after wait for %q", host)
+		return ip, nil
+	}
+
+	upstreams, err := dnsUpstreamsFor(s, fqdn)
+	if err != nil {
+		return netip.Addr{}, err
+	}
 	if len(upstreams) == 0 {
 		return resolveHostSystem(ctx, host)
 	}
@@ -420,18 +550,37 @@ func resolveHost(ctx context.Context, s *tsnet.Server, host string) (netip.Addr,
 			lastErr = err
 			continue
 		}
-		addr, err := queryTunnelDNS(ctx, s, ipp, bs)
+		answer, err := dnsQuery(ctx, s, ipp, bs)
 		if err != nil {
 			lastErr = err
 			continue
 		}
-		logf("resolved %q -> %s via upstream %s", host, addr, ipp)
-		return addr, nil
+		if len(answer.ips) == 0 {
+			lastErr = fmt.Errorf("tsembed: no A record from upstream %s", ipp)
+			continue
+		}
+		logf("dns resolution succeeded: %q -> %v via %s (ttl=%ds)", host, answer.ips, ipp, answer.ttl)
+		dnsCacheInstance.put(key, answer.ips, answer.cacheTTL())
+		return answer.ips[0], nil
 	}
 	if lastErr == nil {
 		lastErr = errors.New("no usable upstream resolvers")
 	}
+	logf("dns resolution failed for %q: %v", host, lastErr)
 	return netip.Addr{}, fmt.Errorf("tsembed: tailnet DNS lookup for %q: %w", host, lastErr)
+}
+
+// tailnetUpstreamsFor reads the tailnet resolvers configured for an FQDN.
+func tailnetUpstreamsFor(s *tsnet.Server, fqdn dnsname.FQDN) ([]*dnstype.Resolver, error) {
+	mgr := s.Sys().DNSManager.Get()
+	if mgr == nil {
+		return nil, errors.New("tsembed: tailnet DNS manager unavailable")
+	}
+	res := mgr.Resolver()
+	if res == nil {
+		return nil, errors.New("tsembed: tailnet DNS resolver unavailable")
+	}
+	return res.GetUpstreamResolvers(fqdn), nil
 }
 
 // parseUpstream converts a tailnet DNS resolver address to an IP:port. Plain
@@ -456,19 +605,52 @@ func parseUpstream(addr string) (netip.AddrPort, error) {
 }
 
 // queryTunnelDNS sends an A query to upstream over the tunnel and returns the
-// first A record. The netstack socket routes subnet destinations through the
-// tailnet, so a homelab DNS reachable only inside the LAN still answers. A TCP
-// DNS fallback mirrors the official client's behavior: some homelab resolvers
-// do not answer plain UDP queries coming through a subnet router.
-func queryTunnelDNS(ctx context.Context, s *tsnet.Server, upstream netip.AddrPort, query []byte) (netip.Addr, error) {
-	out, err := udpDNSQuery(ctx, s, upstream, query)
-	if err != nil {
-		out, err = tcpDNSQuery(ctx, s, upstream, query)
+// parsed answer. The netstack socket routes subnet destinations through the
+// tailnet, so a homelab DNS reachable only inside the LAN still answers.
+//
+// Transport policy: private split-DNS upstreams (RFC1918, loopback, IPv6 ULA,
+// tailnet CGNAT) are queried TCP-first because the homelab resolver ignores UDP
+// over the subnet route (docs/PLAN.md, 2026-08-11); UDP remains a fallback for
+// resolvers that only answer UDP. Public upstreams keep the standard
+// UDP-then-TCP order, mirroring the official client's forwarder.
+func queryTunnelDNS(ctx context.Context, s *tsnet.Server, upstream netip.AddrPort, query []byte) (dnsAnswer, error) {
+	var out []byte
+	var err error
+	if isPrivateUpstream(upstream.Addr()) {
+		logf("dns transport for %s: tcp-first (private upstream)", upstream)
+		out, err = tcpQueryFn(ctx, s, upstream, query)
 		if err != nil {
-			return netip.Addr{}, err
+			debugLogf("dns tcp query to %s failed, falling back to udp: %v", upstream, err)
+			out, err = udpQueryFn(ctx, s, upstream, query)
+			if err != nil {
+				return dnsAnswer{}, err
+			}
+		}
+	} else {
+		out, err = udpQueryFn(ctx, s, upstream, query)
+		if err != nil {
+			debugLogf("dns udp query to %s failed, falling back to tcp: %v", upstream, err)
+			out, err = tcpQueryFn(ctx, s, upstream, query)
+			if err != nil {
+				return dnsAnswer{}, err
+			}
 		}
 	}
 	return parseDNSAnswer(query, out, upstream)
+}
+
+// isPrivateUpstream reports whether a DNS upstream address is private: RFC1918,
+// loopback or IPv6 ULA (netip.IsPrivate), or a tailnet CGNAT address
+// (100.64.0.0/10, which netip does not classify as private).
+func isPrivateUpstream(ip netip.Addr) bool {
+	if ip.IsPrivate() || ip.IsLoopback() {
+		return true
+	}
+	if !ip.Is4() {
+		return false
+	}
+	a := ip.As4()
+	return a[0] == 100 && a[1]&0xC0 == 0x40
 }
 
 // udpDNSQuery sends a raw DNS query over a netstack UDP socket bound to the
@@ -538,27 +720,38 @@ func tcpDNSQuery(ctx context.Context, s *tsnet.Server, upstream netip.AddrPort, 
 	return out, nil
 }
 
-// parseDNSAnswer extracts the first A record from a DNS response, verifying
-// that the response matches the query id.
-func parseDNSAnswer(query, out []byte, upstream netip.AddrPort) (netip.Addr, error) {
+// parseDNSAnswer extracts all A records from a DNS response, verifying that the
+// response matches the query id, and records the smallest advertised TTL.
+func parseDNSAnswer(query, out []byte, upstream netip.AddrPort) (dnsAnswer, error) {
 	var resp dns.Msg
 	if err := resp.Unpack(out); err != nil {
-		return netip.Addr{}, fmt.Errorf("tsembed: parse dns response: %w", err)
+		return dnsAnswer{}, fmt.Errorf("tsembed: parse dns response: %w", err)
 	}
 	if resp.Id != binary.BigEndian.Uint16(query[:2]) {
-		return netip.Addr{}, fmt.Errorf("tsembed: dns response id mismatch")
+		return dnsAnswer{}, fmt.Errorf("tsembed: dns response id mismatch")
 	}
 	if resp.Rcode != dns.RcodeSuccess {
-		return netip.Addr{}, fmt.Errorf("tsembed: dns response from %s: %s", upstream, dns.RcodeToString[resp.Rcode])
+		return dnsAnswer{}, fmt.Errorf("tsembed: dns response from %s: %s", upstream, dns.RcodeToString[resp.Rcode])
 	}
+	var ans dnsAnswer
 	for _, rr := range resp.Answer {
-		if a, ok := rr.(*dns.A); ok {
-			if ip, ok := netip.AddrFromSlice(a.A); ok {
-				return ip.Unmap(), nil
-			}
+		a, ok := rr.(*dns.A)
+		if !ok {
+			continue
+		}
+		ip, ok := netip.AddrFromSlice(a.A)
+		if !ok {
+			continue
+		}
+		ans.ips = append(ans.ips, ip.Unmap())
+		if ans.ttl == 0 || a.Hdr.Ttl < ans.ttl {
+			ans.ttl = a.Hdr.Ttl
 		}
 	}
-	return netip.Addr{}, errors.New("tsembed: no A record in dns answer")
+	if len(ans.ips) == 0 {
+		return dnsAnswer{}, errors.New("tsembed: no A record in dns answer")
+	}
+	return ans, nil
 }
 
 // dialNetstackTCP dials a TCP connection through the tunnel. The netstack

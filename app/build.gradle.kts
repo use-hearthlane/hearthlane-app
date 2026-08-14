@@ -49,6 +49,19 @@ android {
     }
 }
 
+// LiveViewTest drives Compose through ActivityScenario, which resolves
+// androidx.activity.ComponentActivity against the variant's app manifest. The
+// compose test manifest (debugImplementation of ui-test-manifest) injects that
+// activity into the debug manifest, but the release manifest never contains
+// it, so the Robolectric launch cannot resolve it on release. The Compose
+// contract is fully covered by the debug unit tests; release runs the
+// non-UI suites.
+tasks.configureEach {
+    if (name == "testReleaseUnitTest") {
+        (this as Test).filter { excludeTestsMatching("com.homelab.poc.ui.LiveViewTest") }
+    }
+}
+
 kotlin {
     compilerOptions {
         jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17)
@@ -77,5 +90,9 @@ dependencies {
     testImplementation(libs.robolectric)
     testImplementation(platform(libs.androidx.compose.bom))
     testImplementation(libs.androidx.compose.ui.test.junit4)
+    // debugImplementation (not testImplementation) so the merged DEBUG app
+    // manifest declares androidx.activity.ComponentActivity for Robolectric's
+    // ActivityScenario; the release manifest never carries it (see the
+    // testReleaseUnitTest exclusion below).
     debugImplementation(libs.androidx.compose.ui.test.manifest)
 }

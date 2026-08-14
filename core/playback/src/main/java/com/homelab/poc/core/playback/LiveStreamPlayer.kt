@@ -77,7 +77,7 @@ class LiveStreamPlayer(
             ).distinct().joinToString(": ")
             _metrics.update { it.copy(errorCount = it.errorCount + 1) }
             Log.e(TAG, "playback error (count=${_metrics.value.errorCount}): $message", error)
-            _state.value = PlaybackStatus.Error(message)
+            _state.value = PlaybackStatus.Error(message, httpStatusFrom(error))
         }
     }
 
@@ -95,6 +95,15 @@ class LiveStreamPlayer(
         // Clear any previous error: a fresh media source starts from IDLE and
         // would otherwise keep the last error visible forever.
         _state.value = PlaybackStatus.Loading
+        // After a fatal error the same player instance must start from a clean
+        // slate: stop + detach the failed media source, otherwise a re-prepare
+        // can reuse the stale error path and never leave the dead session. A
+        // Retry on the existing player then behaves like the proven
+        // leave-and-re-enter recovery (which builds a fresh player).
+        if (player.playbackState == Player.STATE_IDLE) {
+            player.stop()
+            player.clearMediaItems()
+        }
         player.setMediaSource(source)
         player.prepare()
         player.playWhenReady = true
@@ -134,3 +143,15 @@ class LiveStreamPlayer(
         const val DEFAULT_REQUEST_TIMEOUT_MS = 30_000L
     }
 }
+
+/**
+ * Walks a [PlaybackException] cause chain for the HTTP status of a non-2xx
+ * response. Media3 may wrap the [HttpStatusIOException] raised by the data
+ * source in its own exception layers, so the full chain is inspected. Returns
+ * null for connection-level failures (timeout, DNS, refused).
+ */
+internal fun httpStatusFrom(error: PlaybackException): Int? =
+    generateSequence(error as Throwable) { it.cause }
+        .filterIsInstance<HttpStatusIOException>()
+        .firstOrNull()
+        ?.statusCode

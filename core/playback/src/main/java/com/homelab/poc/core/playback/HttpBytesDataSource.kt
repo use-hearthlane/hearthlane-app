@@ -13,6 +13,17 @@ import kotlinx.coroutines.runBlocking
 import java.io.IOException
 
 /**
+ * IOException carrying the HTTP status of a non-2xx response. The playback
+ * layer keeps it in the cause chain so the UI can classify failures: a 5xx or
+ * 404 is a server/product state that retrying will not fix, while every other
+ * error is transient and auto-recoverable.
+ */
+class HttpStatusIOException(
+    val statusCode: Int,
+    message: String,
+) : IOException(message)
+
+/**
  * [DataSource] for Media3/ExoPlayer that performs every HTTP GET through an
  * injected [HttpBytesGetter].
  *
@@ -69,7 +80,7 @@ class HttpBytesDataSource(
             // IOException to keep ExoPlayer's own retry policy (transient).
             val message = "HttpBytesDataSource: GET $url -> HTTP ${fetched.statusCode}"
             Log.e(TAG, message)
-            throw IOException(message)
+            throw HttpStatusIOException(fetched.statusCode, message)
         }
         validatePayload(url, fetched)
         onBytes(fetched.body.size.toLong())

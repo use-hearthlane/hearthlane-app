@@ -17,6 +17,11 @@ android {
         minSdk = libs.versions.minSdk.get().toInt()
     }
 
+    buildFeatures {
+        // BuildConfig.DEBUG gates the DNS debug logs in the Go bridge.
+        buildConfig = true
+    }
+
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17

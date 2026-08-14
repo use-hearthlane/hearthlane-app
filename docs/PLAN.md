@@ -541,6 +541,170 @@ These questions must be answered by implementation experiments, not speculation.
 
 Append decisions here as experiments complete.
 
+### 2026-08-14 — TAILSCALE playback instability root cause: per-segment tailnet DNS re-resolution; DNS cache + TCP-first policy
+
+**Symptom:** During live playback over TAILSCALE, ExoPlayer reported
+`ERROR_CODE_IO_UNSPECIFIED: ... HttpBytesDataSource: GET
+http://site.omni.corp/api/go2rtc/api/hls/segment.m4s?id=... failed:
+tsembed: tailnet DNS lookup for "site.omni.corp": tsembed: dial dns upstream
+192.168.10.2:53 over tcp: context deadline exceeded`.
+
+**Root cause (confirmed):** every HLS request (manifest or segment) goes through
+`HttpGetBytes` -> `resolveHost`, which re-resolved the hostname over the tunnel
+on every request (no DNS cache). `site.omni.corp` is split-DNS served by the
+homelab resolver `192.168.10.2:53`, which is known to ignore UDP over the subnet
+route, so each resolution burned the 2s UDP wait and then a fresh TCP dial
+through netstack. Under mobile/DERP conditions the TCP dial occasionally
+exceeded its 2s budget, failing the segment fetch and surfacing as
+`ERROR_CODE_IO_UNSPECIFIED`. The failure at `segment.m4s ... n=30` (late in a
+session that had been fetching segments fine) shows the path itself works and
+the failure is the per-segment re-resolution cost.
+
+**Fix:**
+
+- **In-memory DNS cache in `tsembed`:** thread-safe, process-lifetime, never
+  persisted to disk. Keyed by normalized hostname (lowercase, no trailing dot).
+  The value is the list of resolved A records plus an expiry. The TTL is derived
+  from the DNS answer (minimum TTL across A records), clamped to a conservative
+  maximum of 60s; **a zero-TTL answer falls back to the fixed 60s TTL** instead
+  of disabling the cache (the homelab resolver always advertises TTL 0, see
+  follow-up below). Failures and empty answers are never cached. Cache misses
+  are serialized under a mutex with a post-lock re-check so concurrent segment
+  fetches collapse into a single resolution (no thundering herd).
+- **TCP-first for private split-DNS upstreams:** upstreams classified as private
+  (RFC1918, loopback, IPv6 ULA, and the tailnet CGNAT range 100.64.0.0/10) are
+  queried over TCP first because the homelab resolver ignores UDP over the
+  subnet route; UDP remains a fallback for resolvers that only answer UDP.
+  Public upstreams keep the standard UDP-then-TCP order, mirroring the official
+  client's forwarder. The 2s per-transport budget is unchanged for now.
+- **Observability:** resolution succeeded/failed and the chosen transport are
+  logged at the normal level (once per TTL, not per segment); cache hit/miss are
+  logged at debug level, gated by the new `SetDebugDNS` binding, which the
+  Android bridge enables in debug builds. No tokens, auth URLs or other secrets
+  are logged.
+
+**Validation:** `go test ./...` and `go vet ./...` green (new tests cover: first
+resolution queries and caches; second resolution within TTL is a cache hit with
+no new query; TTL expiry re-queries; resolution errors are not cached; empty
+answers are not cached; zero-TTL answers fall back to the fixed cache TTL;
+concurrent misses for the same hostname collapse into a single query;
+per-hostname entries are independent; concurrent reads/writes do not corrupt
+the cache; private upstream is TCP-first with UDP fallback; public upstream
+stays UDP-first with TCP fallback; answer TTL is the minimum across A records
+and capped at 60s).
+`./gradlew test lint :app:assembleDebug` green. Rebuilt AAR exposes
+`setDebugDNS`.
+
+**Follow-up (physical validation, 2026-08-14):** the on-device log showed the
+cache was active but ineffective: the homelab resolver `192.168.10.2:53`
+answers **TTL 0 for every A record**, which the initial policy treated as
+"do not cache", so per-segment re-resolution persisted. Fixed by falling back
+to the conservative fixed TTL for zero-TTL answers (cache now actually caches).
+The same log showed three concurrent `cache miss` lines at startup, so a simple
+per-hostname miss serialization was added (mutex + post-lock re-check).
+
+**Status:** NOT marked resolved. Pending physical-device validation: LOCAL ->
+TAILSCALE switch during live playback, 10-15 minutes of remote playback with no
+new tailnet DNS timeouts or `ERROR_CODE_IO_UNSPECIFIED`, TAILSCALE -> LOCAL
+switch still working, and the transport label matching the real transport. If
+TCP dial timeouts persist with the cache active, report before raising the 2s
+budget.
+
+### 2026-08-14 — LiveView recovery policy: auto-recover everything except 5xx/404; explicit Retry button
+
+**Context:** over TAILSCALE the live view auto-recovers from every playback
+error by creating a fresh go2rtc session. A 5xx (server-side problem) or a 404
+(missing resource) is not fixed by a fresh session, so retrying them silently
+only spins a recovery loop with no visibility.
+
+**Decision:** playback errors now carry the HTTP status of the failing response
+when one exists (`PlaybackStatus.Error.statusCode`, extracted from the
+`HttpStatusIOException` raised by `HttpBytesDataSource` and walked out of the
+Media3 `PlaybackException` cause chain). The auto-recovery effect in `LiveView`
+recovers only when the error is **not** 404 and **not** 5xx (`autoRecoverable`);
+connection-level failures (timeout, DNS, refused) have no status and stay
+auto-recoverable. The TAILSCALE-unbounded / LOCAL-bounded (2, resets after 10s
+stable) budget logic is unchanged. A **Retry** button was added to the live view
+for both the playback-error and the stream-discovery-error states, so the
+non-recoverable cases surface the error with a manual action instead of a
+black screen.
+
+**Validation:** `:core:playback:testDebugUnitTest` green (new tests cover the
+`autoRecoverable` classification: null/403/429/418 recoverable, 404/500/503
+not; and `httpStatusFrom` walks the Media3 cause chain and returns null for
+connection failures). Full `./gradlew test lint :app:assembleDebug` green.
+
+**Follow-up (physical validation, 2026-08-14):** with the policy active, a
+manual Retry on a failed live view did not recover, while leaving the live view
+and re-entering did. Re-entry builds a fresh `LiveStreamPlayer` (new
+`ExoPlayer`), whereas Retry reused the same instance that had just suffered a
+fatal error. Fix: `LiveStreamPlayer.play()` now hard-resets the same instance
+before re-preparing (`stop()` + `clearMediaItems()` when `STATE_IDLE`), making
+a Retry behave like a freshly created player, and a re-discovery failure that
+happens while a stale stream URL is still set is now shown under the player
+instead of hiding behind a black surface. The re-enter-only-works symptom was
+the tell that the player restart, not the network, was the failing step.
+
+### 2026-08-14 (later) — LiveView recovery policy reversed: auto-recover everything, zero error UI
+
+**Context:** the 5xx/404 gate above meant some failures surfaced a "Playback
+error" message and a Retry button. The user asked for fully automatic recovery:
+during an error, the screen must show **nothing different** from normal
+playback, and the error counter must never appear.
+
+**Decision:** the policy is **reversed**. Every playback error now auto-recovers
+with a fresh go2rtc session (TAILSCALE unbounded / LOCAL bounded, unchanged,
+including 5xx/404), and a failed discovery auto-retries itself after a 1.5s
+backoff (`DISCOVERY_RETRY_DELAY_MS`). All Retry buttons were removed from the
+live view. Error text is never composed: the footer label masks
+`PlaybackStatus.Error` as "Playing", the re-discovery banner under the player
+was deleted, and `metrics.errorCount` was dropped from the diagnostics line
+(the `errors` placeholder was removed from `live_view_metrics`). The
+`discoveryError` state and the `CopyableError` helper became dead code and were
+removed from `LiveView`. `PlaybackStatus.Error.autoRecoverable` was removed as
+dead code; `statusCode` stays only for the recovery log. The "Camera
+unavailable" product state (a genuinely missing stream) keeps its explicit "Try
+again" — auto-retry must not loop on a product state. Only "unavailable" and
+the transport header/log still carry error context; the metrics line keeps
+"recoveries" so on-device tests can still tell recovered sessions apart.
+
+**Validation:** full `./gradlew test lint :app:assembleDebug` green.
+
+### 2026-08-14 — Network-change listener must stay active while live video is shown
+
+**Context:** with recovery working, a device test found that entering the live
+view over Tailscale and then turning on Wi-Fi did **not** switch to LOCAL; the
+connection stayed on Tailscale even though the LAN had become reachable. This
+had worked in the POC.
+
+**Root cause:** the network callback (`FrigateConnectionController.start()`) was
+scoped to the `Screen.Home` branch's `DisposableEffect`. The POC embedded the
+live view inside Home, so the listener stayed registered while watching. When
+the live view became a separate destination (V1.3), navigating Home -> Live
+disposed the Home branch, whose `onDispose` called `controller.stop()` and
+unregistered the callback. On the Live screen there was therefore **no
+network-driven re-probe**: turning on Wi-Fi never produced an `onAvailable`
+handling, `connect(false)` never ran, the connection stayed
+`Connected(TAILSCALE)`, and `LiveView` (keyed on `transport`) never rebuilt on
+the LOCAL getter.
+
+**Fix:** `AppRoot` now registers the controller (network callback) in the
+`Screen.Live` branch as well, with the same `start()/stop()` lifecycle as Home.
+The `registerDefaultNetworkCallback` also fires `onAvailable` for the current
+default network at registration, so entering the live view performs one
+cheap local-first re-probe (self-heals a home-but-Tailscale case) and every
+later network transition re-probes normally. A successful LOCAL re-probe updates
+`connection` -> `Connected(LOCAL)`; `LiveView`'s `remember(transport, gateway)`
+then rebuilds the player on the LOCAL getter and the reconnect effect starts
+playback — the POC transport-switch behavior is restored.
+
+**Validation:** full `./gradlew test lint :app:assembleDebug` green. The fix is
+behavioral (composition-root wiring) and will be confirmed on the physical
+device: enter live view over Tailscale, enable home Wi-Fi, verify logcat shows
+the re-probe and the switch (`transport switched #N: TAILSCALE -> LOCAL`) and
+that playback restarts over LOCAL.
+
+
 ### 2026-08-12 — V1.2 camera discovery implemented over the existing LOCAL/TAILSCALE transport path
 
 **Context:** V1.1 gates the app on first-run administrator setup. V1.2 must
@@ -713,6 +877,76 @@ View. The POC playback logic is reused unchanged.
   Tailscale auth-required state, and correctly routed to the enrollment screen
   instead of falling back to a failed Home state. After completing enrollment
   the Live view resumed over TAILSCALE.
+
+### 2026-08-14 — V1.4 per-camera live playback: the selected camera owns the stream
+
+**Context:** V1.3 routed the Home grid to `Screen.Live(camera.id)` but the
+Live View spike still played a "first stream". V1.4 removes that pick: the
+Live screen now plays exactly the go2rtc stream whose name equals the
+selected camera id, the only relation proven on the real install (V1.2
+Decision Log).
+
+**Decision:**
+
+- `Go2RtcStreams.firstStreamName` and `firstTopLevelKey` are removed; the new
+  `streamNameForCamera(baseUrl, cameraId, timeout)` resolves the stream by
+  exact `camera.id == stream name` equality and returns `null` when no stream
+  matches. Stream order never influences playback, and a missing stream is
+  never silently replaced by another camera's stream.
+- `LiveView` receives the `cameraId` chosen on Home and resolves/plays that
+  camera's stream. The `lastStreamName` cache is replaced by a `streamResolved`
+  flag: recovery of a dead go2rtc session reuses the fixed name (`== cameraId`),
+  while any discovery failure invalidates the flag so a removed stream
+  self-heals by re-listing on the next attempt.
+- A selected camera whose stream is absent from `/api/go2rtc/streams` now
+  surfaces an explicit "Camera unavailable" state with a Try again action
+  instead of a dead player (product state, not an infrastructure error).
+- `AppRoot` camera resolution for the `Screen.Live` route is extracted into the
+  pure, unit-tested `resolveLiveCamera(cameraId, selectedCamera,
+  discoveryState)`: the camera tapped on Home wins; otherwise the
+  already-discovered list is consulted by exact id (covers process restart).
+  No new global discovery is triggered.
+- `LiveScreen` titles the screen with the Frigate `displayName` (friendly
+  name, camera key fallback), so the family-facing title never shows a raw
+  camera id when a friendly name exists. The duplicated in-body live-view title
+  is removed.
+- Robolectric/Compose tests (`LiveViewTest`) prove the selected camera resolves
+  its own stream (`src=<cameraId>`), the unavailable state, and that leaving
+  the live view releases the player. Because the Compose test activity is only
+  injected into the **debug** app manifest, `LiveViewTest` runs on the debug
+  unit tests; `testReleaseUnitTest` excludes that one class (the Compose
+  contract is fully covered by the debug variant, release runs the non-UI
+  suites).
+
+**Validation:** `./gradlew test lint :app:assembleDebug` green. New tests:
+`TransportAndGo2RtcTest` (streamNameForCamera by exact id for multiple
+cameras, order independence, missing stream -> null, empty streams -> null,
+non-2xx propagation), `ResolveLiveCameraTest` (selected camera wins, exact-id
+fallback, friendly display name preserved, unknown id -> null, discovery not
+loaded -> null), and `LiveViewTest` (per-camera stream resolution, unavailable
+state, player release on leave).
+
+**Validated (physical device, 2026-08-14):** V1.4 physical validation completed
+successfully — all 10 planned scenarios passed on a real Android install. In
+particular:
+
+- **Per-camera playback by `cameraId` validated:** the selected camera plays
+  its own go2rtc stream (`src=<cameraId>`), never a "first stream".
+- **LOCAL -> TAILSCALE validated:** leaving the home LAN falls back to the
+  embedded Tailscale node without interaction.
+- **TAILSCALE -> LOCAL validated:** re-enabling home Wi-Fi re-probes
+  local-first and switches back to LOCAL (network listener active while live
+  video is shown; see the network-listener entry above).
+- **Tailscale stopped after LOCAL confirmed:** the embedded node is released
+  when the local probe succeeds.
+- **Playback stability validated:** 5-minute stable live video, network-switch
+  recovery, back navigation stops bytes, rotation keeps playback, time to
+  first frame logged, and automatic invisible recovery works.
+- **Known limitation (recorded, not blocking):** rotating the Live View to
+  landscape clips part of the content (no scroll/adaptive layout for the
+  shorter available height); playback continues, no crash and no
+  networking/lifecycle regression. Registered as UI/polish debt for a later
+  milestone (V1.md Section 16).
 
 ### 2026-08-12 — V1.1 first-run setup implemented without touching the POC network/playback stack
 

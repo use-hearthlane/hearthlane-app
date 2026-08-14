@@ -207,10 +207,18 @@ fun AppRoot(
             )
         }
         is Screen.Live -> {
-            val camera = selectedCamera
-                ?: (discoveryState as? CameraDiscoveryState.Loaded)
-                    ?.cameras
-                    ?.find { it.id == screen.cameraId }
+            // Keep the network-change listener alive while live video is shown.
+            // When the Live screen became a separate destination (V1.3) the
+            // listener was scoped to Home only, so turning on Wi-Fi while
+            // watching would never re-probe: the connection stayed on
+            // Tailscale even though the LAN had become reachable. The POC
+            // embedded the live view in Home where the listener was always
+            // active; this restores that behavior.
+            DisposableEffect(controller) {
+                controller.start()
+                onDispose { controller.stop() }
+            }
+            val camera = resolveLiveCamera(screen.cameraId, selectedCamera, discoveryState)
 
             // The single decision point for the Live branch. It prevents the
             // enrollment-routing race: when auth is required we must NOT call
@@ -241,6 +249,25 @@ fun AppRoot(
         }
     }
 }
+
+/**
+ * Resolves the [Camera] model for the Live screen from the state already
+ * available in the composition root. The camera selected on Home wins; when it
+ * is not available (for example after a process restart that loses the
+ * selected-camera memory), the already-discovered camera list is consulted by
+ * exact camera id. No new global discovery is triggered here.
+ *
+ * The resolved camera carries the Frigate-friendly [Camera.displayName], which
+ * the Live screen uses as its title.
+ */
+internal fun resolveLiveCamera(
+    cameraId: String,
+    selectedCamera: Camera?,
+    discoveryState: CameraDiscoveryState?,
+): Camera? = selectedCamera
+    ?: (discoveryState as? CameraDiscoveryState.Loaded)
+        ?.cameras
+        ?.find { it.id == cameraId }
 
 /**
  * Pure decision for the Live branch. Extracted so the navigation race between

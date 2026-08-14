@@ -15,6 +15,12 @@ import org.json.JSONObject
  */
 object TailscaleBridge {
 
+    init {
+        // Debug builds enable the Go DNS debug logs (cache hit/miss) so tailnet
+        // DNS behavior is confirmable in logcat during device validation.
+        Tsembed.setDebugDNS(BuildConfig.DEBUG)
+    }
+
     fun start(hostname: String, authKey: String, stateDir: String) {
         Tsembed.start(hostname, authKey, stateDir)
     }

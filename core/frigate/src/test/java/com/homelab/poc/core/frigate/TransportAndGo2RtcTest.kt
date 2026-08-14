@@ -39,34 +39,106 @@ class TransportAndGo2RtcTest {
     }
 
     @Test
-    fun `go2rtc discovery parses the first stream name in document order`() = runTest {
+    fun `streamNameForCamera resolves the selected camera's stream by exact id`() = runTest {
         val getter = HttpBytesGetter { url, _ ->
             HttpBytesResult(
                 200,
                 "application/json",
                 url,
-                """{"back":{},"hall":{},"garage":{}}""".toByteArray(),
+                """{"backyard":{},"hall":{},"garage":{}}""".toByteArray(),
             )
         }
         val streams = Go2RtcStreams(getter)
 
-        val name = streams.firstStreamName(config.tailscaleBaseUrl, 5000)
-
-        assertEquals("back", name)
+        assertEquals("backyard", streams.streamNameForCamera(config.tailscaleBaseUrl, "backyard", 5000))
+        assertEquals("hall", streams.streamNameForCamera(config.tailscaleBaseUrl, "hall", 5000))
         assertEquals(
-            "http://frigate:5000/api/go2rtc/api/stream.m3u8?src=back&mp4",
-            streams.hlsUrl(config.tailscaleBaseUrl, "back"),
+            "http://frigate:5000/api/go2rtc/api/stream.m3u8?src=backyard&mp4",
+            streams.hlsUrl(config.tailscaleBaseUrl, "backyard"),
         )
     }
 
     @Test
-    fun `go2rtc discovery reports no streams as null`() = runTest {
+    fun `streamNameForCamera resolves a second selected camera by its own id`() = runTest {
+        val getter = HttpBytesGetter { url, _ ->
+            HttpBytesResult(
+                200,
+                "application/json",
+                url,
+                """{"front_door":{},"backyard":{},"hall":{}}""".toByteArray(),
+            )
+        }
+        val streams = Go2RtcStreams(getter)
+
+        assertEquals(
+            "selecting front_door must resolve the front_door stream",
+            "front_door",
+            streams.streamNameForCamera(config.tailscaleBaseUrl, "front_door", 5000),
+        )
+        assertEquals(
+            "selecting backyard must resolve the backyard stream",
+            "backyard",
+            streams.streamNameForCamera(config.tailscaleBaseUrl, "backyard", 5000),
+        )
+    }
+
+    @Test
+    fun `streamNameForCamera is independent of the stream list order`() = runTest {
+        val getter = HttpBytesGetter { url, _ ->
+            HttpBytesResult(
+                200,
+                "application/json",
+                url,
+                """{"gate":{},"hall":{},"backyard":{}}""".toByteArray(),
+            )
+        }
+        val streams = Go2RtcStreams(getter)
+
+        assertEquals(
+            "the selected camera must win regardless of its position in the payload",
+            "backyard",
+            streams.streamNameForCamera(config.tailscaleBaseUrl, "backyard", 5000),
+        )
+    }
+
+    @Test
+    fun `streamNameForCamera returns null when the camera has no stream`() = runTest {
+        val getter = HttpBytesGetter { url, _ ->
+            HttpBytesResult(200, "application/json", url, """{"backyard":{},"hall":{}}""".toByteArray())
+        }
+        val streams = Go2RtcStreams(getter)
+
+        assertNull(
+            "a camera without a matching stream resolves to nothing, not to another stream",
+            streams.streamNameForCamera(config.tailscaleBaseUrl, "front_door", 5000),
+        )
+    }
+
+    @Test
+    fun `streamNameForCamera returns null when no streams exist`() = runTest {
         val getter = HttpBytesGetter { url, _ ->
             HttpBytesResult(200, "application/json", url, "{}".toByteArray())
         }
         val streams = Go2RtcStreams(getter)
 
-        assertNull(streams.firstStreamName(config.localBaseUrl, 5000))
+        assertNull(streams.streamNameForCamera(config.localBaseUrl, "backyard", 5000))
+    }
+
+    @Test
+    fun `streamNameForCamera propagates a non-2xx response`() = runTest {
+        val getter = HttpBytesGetter { url, _ ->
+            HttpBytesResult(403, "application/json", url, ByteArray(0))
+        }
+        val streams = Go2RtcStreams(getter)
+
+        var thrown: Exception? = null
+        try {
+            streams.streamNameForCamera(config.localBaseUrl, "backyard", 5000)
+        } catch (e: Exception) {
+            thrown = e
+        }
+        assertNotNull("a non-2xx stream listing must raise", thrown)
+        assertTrue(thrown!!.message.orEmpty().contains("HTTP 403"))
     }
 
     @Test
@@ -123,7 +195,7 @@ class TransportAndGo2RtcTest {
 
         var thrown: Exception? = null
         try {
-            streams.firstStreamName(config.localBaseUrl, 5000)
+            streams.streamNames(config.localBaseUrl, 5000)
         } catch (e: Exception) {
             thrown = e
         }
@@ -200,18 +272,6 @@ class TransportAndGo2RtcTest {
                 "#EXTM3U\n#EXT-X-STREAM-INF:BANDWIDTH=192000\n",
             ),
         )
-    }
-
-    @Test
-    fun `firstTopLevelKey is deterministic across depth and value shapes`() {
-        assertEquals(
-            "back",
-            Go2RtcStreams.firstTopLevelKey("""{"back":{"name":"back","src":"rtsp://x"},"hall":[1,2],"gate":"rtmp://y"}"""),
-        )
-        assertNull(Go2RtcStreams.firstTopLevelKey("{}"))
-        assertNull(Go2RtcStreams.firstTopLevelKey("[]"))
-        assertEquals("only", Go2RtcStreams.firstTopLevelKey("""{"only":"string-value"}"""))
-        assertEquals("num", Go2RtcStreams.firstTopLevelKey("""{"num":42}"""))
     }
 
     @Test
