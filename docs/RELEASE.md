@@ -258,6 +258,31 @@ this engineering task.
 - **App access:** Fully functional without a login; the administrator setup
   happens on the device.
 
+## Release compliance checklist
+
+Hearthlane is distributed under GPL-3.0-only. The application bundles
+third-party components under their own licenses; the current inventory and the
+required notices are documented in `THIRD_PARTY_NOTICES.md`. Follow this
+checklist before every release so the distributed binary and the published
+source stay in sync.
+
+1. Generate the release from a clean working tree.
+2. Confirm `versionCode` and `versionName` before building.
+3. Re-audit runtime dependencies whenever dependencies or their versions
+   changed since the last release (`./gradlew :app:dependencies
+   --configuration releaseRuntimeClasspath` and, for the Go component,
+   `go version -m` on the produced `libgojni.so`).
+4. Update `THIRD_PARTY_NOTICES.md` when the audit reveals new components,
+   version changes, or new license/NOTICE requirements.
+5. Commit the `LICENSE`, `THIRD_PARTY_NOTICES.md`, and any documentation
+   changes before building the release artifact.
+6. Generate the AAB from that final commit.
+7. Create the release tag corresponding to the release (for example `v1.0.0`).
+8. Ensure the source corresponding to the distributed binary remains
+   accessible in the public repository at no charge.
+9. Record the commit and/or tag used to produce the AAB (for example in the
+   release notes).
+
 ## Rollback / update procedure
 
 1. Build the fixed release with a new `versionCode` and appropriate
