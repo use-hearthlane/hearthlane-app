@@ -35,16 +35,16 @@ private val LightColorScheme = lightColorScheme(
     surfaceContainerLow = Color(0xFFF1F3ED),
 )
 
-private val FamilyCameraTypography = Typography()
+private val HearthlaneTypography = Typography()
 
-private val FamilyCameraShapes = Shapes()
+private val HearthlaneShapes = Shapes()
 
 @Composable
-fun FamilyCameraTheme(content: @Composable () -> Unit) {
+fun HearthlaneTheme(content: @Composable () -> Unit) {
     MaterialTheme(
         colorScheme = LightColorScheme,
-        typography = FamilyCameraTypography,
-        shapes = FamilyCameraShapes,
+        typography = HearthlaneTypography,
+        shapes = HearthlaneShapes,
         content = content,
     )
 }

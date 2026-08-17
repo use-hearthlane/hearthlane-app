@@ -41,7 +41,7 @@ import com.homelab.poc.setup.shouldShowSetup
 import com.homelab.poc.tailscale.TsnetGatewayImpl
 import com.homelab.poc.thumbnail.CameraThumbnailModelFactory
 import com.homelab.poc.thumbnail.FrigateSnapshotImageLoader
-import com.homelab.poc.ui.theme.FamilyCameraTheme
+import com.homelab.poc.ui.theme.HearthlaneTheme
 
 /**
  * V1 composition root: loads the persisted settings, owns the embedded
@@ -67,7 +67,7 @@ fun AppRoot(
 
     val settingsReady by settings.ready.collectAsState()
     if (!settingsReady) {
-        FamilyCameraTheme {
+        HearthlaneTheme {
             Surface(modifier = Modifier.fillMaxSize()) {
                 Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     Text(text = "Loading settings…")
@@ -163,7 +163,7 @@ fun AppRoot(
         navigation.navigateBack()
     }
 
-    FamilyCameraTheme {
+    HearthlaneTheme {
         if (shouldShowSetup(setupComplete)) {
             // First run: the setup gates the app. The shared controller is
             // intentionally not started here: no network-driven re-probe runs
@@ -175,7 +175,7 @@ fun AppRoot(
                 title = stringResource(R.string.setup_title),
                 onFinished = { navigation.resetTo(Screen.Home) },
             )
-            return@FamilyCameraTheme
+            return@HearthlaneTheme
         }
 
         when (val screen = navigation.current) {

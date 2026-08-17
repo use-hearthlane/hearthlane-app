@@ -55,7 +55,7 @@ class AppSettingsTest {
 
         val suffix = settings.nodeSuffix.value
         assertTrue("suffix must be 8 hex chars, was \"$suffix\"", suffix.matches(Regex("[0-9a-f]{8}")))
-        assertTrue("hostname must carry the suffix", AppSettings.nodeHostname(suffix).startsWith("family-camera-"))
+        assertTrue("hostname must carry the suffix", AppSettings.nodeHostname(suffix).startsWith("hearthlane-"))
 
         val reloaded = AppSettings.createForTest(store, "http://default:5000", backgroundScope)
         reloaded.ready.first { it }

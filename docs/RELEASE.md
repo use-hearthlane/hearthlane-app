@@ -1,15 +1,16 @@
 # Release Engineering / Play Store Readiness
 
-This document describes how to build, sign, and publish the Family Camera app
+This document describes how to build, sign, and publish the Hearthlane app
 through the Google Play Store. It assumes the V1 feature set is complete and
 frozen.
 
 ## Application identity
 
-- **Application ID:** `com.homelab.familycam`
+- **Application ID:** `com.homelab.hearthlane`
 - **Namespace (internal source package):** `com.homelab.poc` (kept to avoid a
   large source refactor; not user-visible)
-- **App name:** `Family Camera`
+- **App name:** `Hearthlane`
+- **Tagline:** Your private way home.
 - **Initial release:** `versionName = "1.0.0"`, `versionCode = 1`
 
 `com.homelab` should be replaced with the real domain under the publisher's
@@ -37,8 +38,8 @@ Create the upload keystore once (do not commit it):
 
 ```text
 keytool -genkey -v \
-  -keystore family-camera-upload.keystore \
-  -alias family-camera \
+  -keystore hearthlane-upload.keystore \
+  -alias hearthlane \
   -keyalg RSA -keysize 2048 -validity 10000 \
   -storepass <store-password> -keypass <key-password>
 ```
@@ -48,9 +49,9 @@ Provide the values at build time. Only one of the two forms is needed.
 **Gradle project properties:**
 
 ```text
-./gradlew -PRELEASE_STORE_FILE=/path/to/family-camera-upload.keystore \
+./gradlew -PRELEASE_STORE_FILE=/path/to/hearthlane-upload.keystore \
   -PRELEASE_STORE_PASSWORD=<store-password> \
-  -PRELEASE_KEY_ALIAS=family-camera \
+  -PRELEASE_KEY_ALIAS=hearthlane \
   -PRELEASE_KEY_PASSWORD=<key-password> \
   :app:bundleRelease
 ```
@@ -58,9 +59,9 @@ Provide the values at build time. Only one of the two forms is needed.
 **Environment variables:**
 
 ```text
-export RELEASE_STORE_FILE=/path/to/family-camera-upload.keystore
+export RELEASE_STORE_FILE=/path/to/hearthlane-upload.keystore
 export RELEASE_STORE_PASSWORD=<store-password>
-export RELEASE_KEY_ALIAS=family-camera
+export RELEASE_KEY_ALIAS=hearthlane
 export RELEASE_KEY_PASSWORD=<key-password>
 ./gradlew :app:bundleRelease
 ```
@@ -132,10 +133,10 @@ An AAB cannot be installed directly with `adb install`. Use one of:
    ```text
    bundletool build-apks \
      --bundle=app/build/outputs/bundle/release/app-release.aab \
-     --output=family-camera.apks \
+     --output=hearthlane.apks \
      --ks=/path/to/upload.keystore \
-     --ks-key-alias=family-camera
-   bundletool install-apks --apks=family-camera.apks
+     --ks-key-alias=hearthlane
+   bundletool install-apks --apks=hearthlane.apks
    ```
 
 The release APK path is the recommended local validation flow because it does
@@ -208,7 +209,7 @@ Reviewed items for V1:
 Create or use a Google Play developer account, then create the app.
 
 - [ ] Google Play Developer account active and paid
-- [ ] App created in Play Console with application ID `com.homelab.familycam`
+- [ ] App created in Play Console with application ID `com.homelab.hearthlane`
 - [ ] Google Play App Signing enabled
 - [ ] Upload key (local keystore) registered with Play Console
 - [ ] First internal testing release uploaded (AAB)
@@ -218,7 +219,7 @@ Create or use a Google Play developer account, then create the app.
 
 Items that must be filled directly in Play Console at publication time:
 
-- [ ] App name (should match `Family Camera`; max 50 chars)
+- [ ] App name (should match `Hearthlane`; max 50 chars)
 - [ ] Short description (max 80 chars)
 - [ ] Full description
 - [ ] App icon (512 x 512 PNG)
@@ -240,7 +241,7 @@ The following assets and declarations must be prepared before going to
 production. This is an inventory only; marketing content is out of scope for
 this engineering task.
 
-- **App name:** `Family Camera` (must be unique enough in the Play Store)
+- **App name:** `Hearthlane` (must be unique enough in the Play Store)
 - **Short description:** One-line summary for store listing
 - **Full description:** Paragraph explaining what the app does
 - **Icon:** Final adaptive icon (foreground + background + monochrome)
@@ -267,6 +268,13 @@ this engineering task.
 5. To roll back, use Play Console's retained artifact feature or publish a
    higher `versionCode` that reverts the code; Android does not allow
    downgrading `versionCode`.
+
+## Project identity note
+
+Hearthlane is an open-source Android gateway for privately accessing services in
+your homelab. The Frigate camera integration is the first implemented service;
+future homelab-service integrations (Immich, Nextcloud, Home Assistant,
+monitoring, and others) are architectural direction, not committed features.
 
 ## Known release blockers / debt
 

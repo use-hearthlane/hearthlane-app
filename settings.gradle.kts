@@ -20,7 +20,7 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "family-camera"
+rootProject.name = "Hearthlane"
 
 include(":app")
 include(":core:connectivity")

@@ -2,18 +2,23 @@
 
 ## Project Overview
 
-This repository contains the V1 family camera Android application. It provides
-remote access to a private Frigate installation through embedded Tailscale
-connectivity, without requiring the official Tailscale Android application to be
-installed separately.
+Hearthlane is an open-source Android gateway for privately accessing services in
+your homelab without exposing them directly to the public Internet. It embeds
+Tailscale connectivity so you can reach self-hosted services from outside the
+home LAN without installing the official Tailscale app.
+
+The first implemented integration is remote live access to cameras managed by a
+private Frigate installation. The architecture is intended to support additional
+homelab services (for example Immich, Nextcloud, Home Assistant, monitoring) in
+future versions; those are architectural direction, not committed features.
 
 The technical foundation was proven as a POC; V1 hardens that foundation into a
-family-facing app and the current milestone is release engineering / Play Store
-readiness.
+family-facing app around the Frigate integration, and the current milestone is
+release engineering / Play Store readiness.
 
 ## Primary Goal
 
-Prove this end-to-end path:
+Prove this end-to-end path (V1, Frigate integration):
 
 ```text
 Android application
@@ -27,10 +32,8 @@ The POC succeeds when a physical Android device, while outside the home LAN and 
 
 ## Non-Goals
 
-Do not expand the POC to include:
+Do not expand the current scope to include:
 
-- Nextcloud integration
-- Immich integration
 - Frigate event browsing
 - Frigate timeline
 - push notifications
@@ -44,7 +47,9 @@ Do not expand the POC to include:
 - polished UI
 - offline downloads
 
-These may be considered after the networking and live-video assumptions are validated.
+Future homelab-service integrations (Immich, Nextcloud, Home Assistant,
+monitoring, etc.) are architectural direction, not current-scope work. These may
+be considered after the networking and live-video assumptions are validated.
 
 ## Technology Direction
 

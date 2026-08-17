@@ -541,6 +541,66 @@ These questions must be answered by implementation experiments, not speculation.
 
 Append decisions here as experiments complete.
 
+### 2026-08-17 — Project renamed to Hearthlane (identity-only)
+
+**Context:** the project was bootstrapped as a proof of concept ("POC Camera"),
+then briefly positioned as "Family Camera" while the V1 release build was being
+prepared. With the first public release approaching, the project identity is
+redefined as **Hearthlane**: an open-source Android gateway for privately
+accessing services in a homelab, with Frigate live cameras as the first
+implemented integration and additional self-hosted services (Immich, Nextcloud,
+Home Assistant, monitoring, …) as architectural direction rather than committed
+features.
+
+**Decisions:**
+
+- **Project name / tagline:** the project is **Hearthlane**; the tagline is
+  "Your private way home". This is reflected in `README.md`, `AGENTS.md`,
+  `docs/V1.md`, and `docs/RELEASE.md`.
+- **applicationId:** `com.homelab.familycam` is renamed to
+  `com.homelab.hearthlane`. The internal Android source namespace
+  (`com.homelab.poc`) and the gomobile Java package (`com.homelab.poc.tsembed`)
+  remain unchanged: a large source-package refactor is out of scope for an
+  identity-only task and would invalidate the gomobile JNI bridge layout. No
+  public release has shipped yet, so the applicationId change does not break an
+  installed user base; DataStore state and Tailscale node identity from earlier
+  local builds will not migrate.
+- **App name:** the user-facing app label changes from "Family Camera" to
+  "Hearthlane".
+- **Android theme:** `Theme.FamilyCamera` is renamed to `Theme.Hearthlane` and
+  the corresponding `@style/Theme.Hearthlane` reference in `AndroidManifest.xml`
+  is updated. Colors, typography, shapes, status-bar handling and UI styling are
+  untouched; this is a name-only change.
+- **Compose theme:** the `FamilyCameraTheme` composable in
+  `app/src/main/java/com/homelab/poc/ui/theme/Theme.kt` and its call sites in
+  `AppRoot.kt` are renamed to `HearthlaneTheme`. All theme values
+  (`LightColorScheme`, `Typography`, `Shapes`) are unchanged.
+- **Gradle root project:** `rootProject.name = "family-camera"` is changed to
+  `"Hearthlane"`. Module names and module paths are not renamed.
+- **Embedded node hostname:** the auto-generated Tailscale node hostname
+  prefix changes from `family-camera-` to `hearthlane-` in
+  `AppSettings.nodeHostname(...)` and the matching unit-test assertion. This is
+  a configuration-value rename; the persistence key for the suffix is unchanged
+  so a fresh install picks up the new prefix automatically.
+- **Not changed intentionally:**
+  - The Kotlin/Java source package `com.homelab.poc` and every subpackage.
+  - The gomobile-generated `com.homelab.poc.tsembed.Tsembed` binding and its
+    `libgojni.so` package layout.
+  - The `versionCode` / `versionName` policy.
+  - The signing configuration (`RELEASE_STORE_FILE` etc.) and any keystore.
+  - Historical `Decision Log` entries that reference "POC Camera" or
+    `poc-camera`: those describe the V1 history accurately and are preserved
+    verbatim.
+
+**Validation:** `./gradlew clean test lint :app:assembleDebug` green;
+`cd native/tailscale/go && go test ./... && go vet ./...` green. Release
+`bundleRelease` validated when the same external signing credentials used in
+the previous release-engineering task are available; otherwise the error
+message produced by the release task validation hook (pointing back to
+`docs/RELEASE.md`) is confirmed to remain clear.
+
+**Status:** Identity rename complete; gates re-executed; ready for hand-off.
+
 ### 2026-08-17 — Release engineering / Play Store readiness configured
 
 **Context:** V1.0–V1.6 are code-complete and physically validated. The next
@@ -550,11 +610,13 @@ playback code.
 
 **Decisions:**
 
-- **Application ID:** changed from `com.homelab.poc` to `com.homelab.familycam`
-  for V1. The internal source namespace (`com.homelab.poc`) and the gomobile
-  Java package (`com.homelab.poc.tsembed`) are intentionally unchanged to avoid
-  a large, risky package refactor. `com.homelab` should be replaced with the
-  publisher's real domain before the public listing.
+- **Application ID:** changed from `com.homelab.poc` to
+  `com.homelab.familycam` and then to `com.homelab.hearthlane` for V1 (see the
+  "Project renamed to Hearthlane" entry below). The internal source namespace
+  (`com.homelab.poc`) and the gomobile Java package
+  (`com.homelab.poc.tsembed`) are intentionally unchanged to avoid a large,
+  risky package refactor. `com.homelab` should be replaced with the publisher's
+  real domain before the public listing.
 - **Versioning:** initial release uses `versionName = "1.0.0"` and
   `versionCode = 1`. Future releases increment `versionCode` monotonically and
   use semantic versioning (`MAJOR.MINOR.PATCH`).
@@ -575,10 +637,13 @@ playback code.
   (transport selection, node state, errors without URLs) remain available for
   diagnostics.
 - **Branding artifacts:** user-facing app name changed from "POC Camera" to
-  "Family Camera"; internal theme renamed from `Theme.PocCamera` to
-  `Theme.FamilyCamera`; root project name changed from `poc-camera` to
-  `family-camera`. The existing vector adaptive icon is kept as a technical
-  placeholder; final marketing artwork is out of scope.
+  "Family Camera" and finally to "Hearthlane"; internal theme renamed from
+  `Theme.PocCamera` to `Theme.FamilyCamera` and then to `Theme.Hearthlane`;
+  Compose theme renamed from `FamilyCameraTheme` to `HearthlaneTheme`; root
+  project name changed from `poc-camera` to `family-camera` and then to
+  `Hearthlane`; Tailscale node hostname prefix changed from `poc-camera` to
+  `family-camera` and then to `hearthlane`. The existing vector adaptive icon is
+  kept as a technical placeholder; final marketing artwork is out of scope.
 - **16 KB page size:** the initial release AAB had `libgojni.so` LOAD segments
   aligned to 4 KB (`0x1000`), which blocks distribution on Android 15+ 16 KB
   page devices. The gomobile build script was updated to link with

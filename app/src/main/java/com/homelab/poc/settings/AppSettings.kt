@@ -108,7 +108,7 @@ class AppSettings(
          * hostname is an internal value: it is never part of the normal
          * configuration flow.
          */
-        fun nodeHostname(suffix: String): String = "family-camera-$suffix"
+        fun nodeHostname(suffix: String): String = "hearthlane-$suffix"
 
         /** Random lowercase-hex suffix. Deterministic length, cryptographically
          *  seeded so two installations never collide by chance. */

@@ -1,8 +1,15 @@
-# Family Camera
+# Hearthlane
 
-Family-friendly Android application that provides remote access to a private
-[Frigate](https://frigate.video/) installation through embedded Tailscale
-connectivity, without requiring the official Tailscale Android application.
+> Your private way home.
+
+Hearthlane is an open-source Android gateway for privately accessing services in
+your homelab without exposing them directly to the public Internet.
+
+It embeds Tailscale connectivity so you can reach your self-hosted services from
+outside your home LAN without installing the official Tailscale app. The first
+implemented integration is live camera viewing through
+[Frigate](https://frigate.video/) / go2rtc; the architecture is intended to
+support additional homelab services in future versions.
 
 See `docs/REQUIREMENTS.md`, `docs/PLAN.md`, and `docs/V1.md` for the technical
 history and scope. See `docs/RELEASE.md` for Play Store build and signing
@@ -10,13 +17,23 @@ instructions.
 
 ## Status
 
-V1 feature-complete. The app probes Frigate over the home LAN first and falls
-back to the embedded Tailscale network when the local attempt fails, then plays
-one go2rtc HLS/fMP4 camera stream with ExoPlayer over the chosen transport. The
-V1 validation passed on a physical Android device for remote connectivity,
-stream discovery, live playback, lock/unlock resume and network-switch reconnect
-(see the `docs/PLAN.md` decision log). The project is now in release
-engineering / Play Store readiness.
+V1 feature-complete. The Frigate camera integration probes the home LAN first
+and falls back to the embedded Tailscale network when the local attempt fails,
+then plays one go2rtc HLS/fMP4 camera stream with ExoPlayer over the chosen
+transport. V1 was validated on a physical Android device for remote
+connectivity, stream discovery, live playback, lock/unlock resume and
+network-switch reconnect (see the `docs/PLAN.md` decision log). The project is
+now in release engineering / Play Store readiness.
+
+## What Hearthlane is building toward
+
+- **Frigate cameras** — live view of one camera at a time (V1, done).
+- **Private connectivity everywhere** — embedded Tailscale node; no separate VPN
+  app, no public Frigate port.
+- **Future homelab services** — the architecture is meant to grow toward other
+  self-hosted services such as Immich, Nextcloud, Home Assistant, monitoring
+  dashboards, and similar. These are architectural direction, not committed
+  features.
 
 ## Prerequisites
 
