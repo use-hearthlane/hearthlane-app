@@ -541,6 +541,66 @@ These questions must be answered by implementation experiments, not speculation.
 
 Append decisions here as experiments complete.
 
+### 2026-08-17 — Release engineering / Play Store readiness configured
+
+**Context:** V1.0–V1.6 are code-complete and physically validated. The next
+milestone is to prepare an installable, Play Store-distributable release
+without changing functional camera, networking, Tailscale, discovery or
+playback code.
+
+**Decisions:**
+
+- **Application ID:** changed from `com.homelab.poc` to `com.homelab.familycam`
+  for V1. The internal source namespace (`com.homelab.poc`) and the gomobile
+  Java package (`com.homelab.poc.tsembed`) are intentionally unchanged to avoid
+  a large, risky package refactor. `com.homelab` should be replaced with the
+  publisher's real domain before the public listing.
+- **Versioning:** initial release uses `versionName = "1.0.0"` and
+  `versionCode = 1`. Future releases increment `versionCode` monotonically and
+  use semantic versioning (`MAJOR.MINOR.PATCH`).
+- **Release build type:** configured with `isDebuggable = false`,
+  `isMinifyEnabled = false`, `isShrinkResources = false`, and an external
+  signing configuration. R8/ProGuard is deliberately disabled because the
+  gomobile native bridge and Tailscale reflection patterns have not been
+  validated against obfuscation; a broken release is worse than a larger AAB.
+- **Signing:** credentials are read from external Gradle properties or
+  environment variables (`RELEASE_STORE_FILE`, `RELEASE_STORE_PASSWORD`,
+  `RELEASE_KEY_ALIAS`, `RELEASE_KEY_PASSWORD`). No keystore or password is
+  committed. The local key is the Play Console upload key; Google Play App
+  Signing is recommended. Missing credentials produce an explicit error only
+  for release tasks; debug builds remain unaffected.
+- **Logs sanitized for release:** all Kotlin playback logs and exception
+  messages no longer include HLS session URLs. The Go bridge `HttpGet` and
+  `doGet` error messages also omit request URLs. Operational state logs
+  (transport selection, node state, errors without URLs) remain available for
+  diagnostics.
+- **Branding artifacts:** user-facing app name changed from "POC Camera" to
+  "Family Camera"; internal theme renamed from `Theme.PocCamera` to
+  `Theme.FamilyCamera`; root project name changed from `poc-camera` to
+  `family-camera`. The existing vector adaptive icon is kept as a technical
+  placeholder; final marketing artwork is out of scope.
+- **16 KB page size:** the initial release AAB had `libgojni.so` LOAD segments
+  aligned to 4 KB (`0x1000`), which blocks distribution on Android 15+ 16 KB
+  page devices. The gomobile build script was updated to link with
+  `-linkmode=external -extldflags=-Wl,-z,max-page-size=16384`. The rebuilt AAR
+  and release AAB now show `Align = 0x4000` for all LOAD segments on both
+  `arm64-v8a` and `x86_64`.
+- **Manifest and security:** `usesCleartextTraffic` remains `true` for V1
+  because the LAN and tailnet Frigate origins are plain HTTP; this is
+  documented as technical debt. Backup/data extraction remain fully excluded,
+  and no long-lived secrets are embedded.
+- **Release documentation:** `docs/RELEASE.md` created with build commands,
+  signing setup, Play Console checklist, store listing inventory, rollback
+  procedure, and known blockers/debt.
+
+**Validation:** `./gradlew test lint :app:assembleDebug :app:bundleRelease` and
+`go test ./...` / `go vet ./...` must pass. The release AAB must be inspected
+for applicationId, versionCode, versionName, ABIs, size, manifest values, and
+16 KB native page alignment before the task is considered done.
+
+**Status:** Configuration complete; artifact inspection and gate execution in
+progress.
+
 ### 2026-08-14 — V1.5 Diagnostics and Settings screens implemented
 
 **Context:** the family-facing Home UI introduced in V1.3/V1.4 intentionally hides

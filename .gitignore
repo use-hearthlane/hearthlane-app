@@ -24,6 +24,8 @@ go-patched/
 .env
 .ssh/
 .vault_pass/
+*.jks
+*.keystore
 
 # Device log captures (may contain private IPs/hostnames)
 crash.txt

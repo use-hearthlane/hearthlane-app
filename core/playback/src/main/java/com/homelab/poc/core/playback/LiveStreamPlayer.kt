@@ -88,7 +88,7 @@ class LiveStreamPlayer(
     /** Starts (or replaces) HLS playback. Call [release] when the screen leaves. */
     fun play(hlsUrl: String) {
         preparedAtMs = SystemClock.elapsedRealtime()
-        Log.i(TAG, "player preparing: $hlsUrl via ${getter::class.simpleName}")
+        Log.i(TAG, "player preparing via ${getter::class.simpleName}")
         val source = HlsMediaSource.Factory(
             HttpBytesDataSourceFactory(getter, requestTimeoutMs, this::onBytesTransferred),
         ).createMediaSource(MediaItem.fromUri(hlsUrl))

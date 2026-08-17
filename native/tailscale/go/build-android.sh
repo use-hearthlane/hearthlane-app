@@ -53,10 +53,15 @@ fi
 mkdir -p "$GOMODCACHE" "$GOCACHE" "$GOTMPDIR" ../build
 out="$(cd ../build && pwd)/tsembed.aar"
 
+# Enforce 16 KB ELF page alignment for Android 15+ devices. The NDK 27
+# toolchain defaults to 4 KB; using the external linker with the right flag
+# produces libraries that are compatible with both 4 KB and 16 KB page
+# devices without growing the binary.
 gomobile bind \
   -target=android/arm64,android/amd64 \
   -androidapi 26 \
   -javapkg com.homelab.poc \
+  -ldflags="-linkmode=external -extldflags=-Wl,-z,max-page-size=16384" \
   -o "$out" \
   .
 

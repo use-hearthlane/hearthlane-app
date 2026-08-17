@@ -383,7 +383,7 @@ func HttpGet(url string, timeoutMs int64) (string, error) {
 		return "", err
 	}
 	if res.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("tsembed: GET %s: HTTP %d", url, res.StatusCode)
+		return "", fmt.Errorf("tsembed: GET failed: HTTP %d", res.StatusCode)
 	}
 	return string(res.Body), nil
 }
@@ -461,7 +461,7 @@ func doGet(ctx context.Context, client *http.Client, u *urlpkg.URL, host string)
 	req.Host = host
 	resp, err := client.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("tsembed: GET %s: %w", u.String(), err)
+		return nil, fmt.Errorf("tsembed: GET failed: %w", err)
 	}
 	return resp, nil
 }

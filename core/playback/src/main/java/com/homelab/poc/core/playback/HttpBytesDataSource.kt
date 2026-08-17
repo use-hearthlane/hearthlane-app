@@ -63,13 +63,14 @@ class HttpBytesDataSource(
             throw e
         } catch (e: Exception) {
             // Connection-level failure (timeout, DNS, refused) surfaced by the
-            // getter or the bridge. Log it with the URL so logcat can tell a
-            // connection problem from a dead go2rtc session, and surface it as
-            // an IOException so ExoPlayer's transient retry policy applies
-            // instead of a fatal error.
-            Log.e(TAG, "HLS GET $url failed (network/bridge): ${e.message ?: e.javaClass.simpleName}")
+            // getter or the bridge. The full URL is intentionally omitted from
+            // release logs because HLS session URLs are transient credentials
+            // to the go2rtc stream. Surface the failure as an IOException so
+            // ExoPlayer's transient retry policy applies instead of a fatal
+            // error.
+            Log.e(TAG, "HLS GET failed (network/bridge): ${e.message ?: e.javaClass.simpleName}")
             throw IOException(
-                "HttpBytesDataSource: GET $url failed: ${e.message ?: e.javaClass.simpleName}",
+                "HttpBytesDataSource: GET failed: ${e.message ?: e.javaClass.simpleName}",
                 e,
             )
         }
@@ -78,7 +79,9 @@ class HttpBytesDataSource(
             // empty (camera cold start); ExoPlayer treats a 4xx thrown through
             // HttpDataSource as non-retriable, so surface it as a plain
             // IOException to keep ExoPlayer's own retry policy (transient).
-            val message = "HttpBytesDataSource: GET $url -> HTTP ${fetched.statusCode}"
+            // The URL is omitted from the exception message to avoid leaking
+            // the HLS session id into logs or crash reports.
+            val message = "HttpBytesDataSource: GET failed -> HTTP ${fetched.statusCode}"
             Log.e(TAG, message)
             throw HttpStatusIOException(fetched.statusCode, message)
         }
@@ -97,7 +100,7 @@ class HttpBytesDataSource(
         closed = false
         Log.d(
             TAG,
-            "GET $url -> HTTP ${fetched.statusCode}, ${fetched.body.size} bytes, " +
+            "HLS GET succeeded -> HTTP ${fetched.statusCode}, ${fetched.body.size} bytes, " +
                 "${fetched.contentType ?: "no content type"}",
         )
         return maxOf(0L, totalBytes)
@@ -151,7 +154,7 @@ class HttpBytesDataSource(
                 if (!bodyPreview.startsWith("#EXTM3U")) {
                     val message =
                         "HLS manifest is not an m3u8 playlist (HTTP ${fetched.statusCode}, " +
-                            "type=${fetched.contentType}): \"$bodyPreview\""
+                            "type=${fetched.contentType})"
                     Log.e(TAG, message)
                     throw IOException(message)
                 }
@@ -165,7 +168,7 @@ class HttpBytesDataSource(
                 // means a proxy or a misrouted request swallowed the payload.
                 val message =
                     "HLS media payload is empty (HTTP ${fetched.statusCode}, " +
-                        "type=${fetched.contentType}) for $url"
+                        "type=${fetched.contentType})"
                 Log.e(TAG, message)
                 throw IOException(message)
             }

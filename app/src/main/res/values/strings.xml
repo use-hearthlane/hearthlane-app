@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">POC Camera</string>
+    <string name="app_name">Family Camera</string>
     <string name="frigate_url_label">Frigate URL (works on Wi-Fi and Tailscale)</string>
     <string name="transport_local">LOCAL</string>
     <string name="transport_tailscale">TAILSCALE</string>

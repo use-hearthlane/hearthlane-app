@@ -20,7 +20,7 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "poc-camera"
+rootProject.name = "family-camera"
 
 include(":app")
 include(":core:connectivity")

@@ -2,9 +2,14 @@
 
 ## Project Overview
 
-This repository contains a proof of concept for a family-friendly Android camera application that provides remote access to a private Frigate installation without requiring the official Tailscale Android application to be installed separately.
+This repository contains the V1 family camera Android application. It provides
+remote access to a private Frigate installation through embedded Tailscale
+connectivity, without requiring the official Tailscale Android application to be
+installed separately.
 
-The POC is intentionally narrow. Its purpose is to validate embedded private networking and Frigate live video access on a modern Android device.
+The technical foundation was proven as a POC; V1 hardens that foundation into a
+family-facing app and the current milestone is release engineering / Play Store
+readiness.
 
 ## Primary Goal
 
@@ -36,7 +41,6 @@ Do not expand the POC to include:
 - full Tailscale client feature parity
 - iOS support
 - production-grade device provisioning
-- Play Store publication
 - polished UI
 - offline downloads
 
@@ -254,6 +258,7 @@ Prefer standard repository commands such as:
 ./gradlew assembleDebug
 ./gradlew test
 ./gradlew lint
+./gradlew :app:bundleRelease
 ```
 
 If a Go module is added:
@@ -271,10 +276,12 @@ When working on this repository:
 
 1. Read `docs/REQUIREMENTS.md`.
 2. Read `docs/PLAN.md`.
-3. Identify the current milestone.
-4. Implement only what is required for that milestone.
-5. Run the relevant checks.
-6. Update the Decision Log when a technical assumption is validated or rejected.
-7. Do not broaden the scope without explicit instruction.
+3. Read `docs/V1.md`.
+4. Read `docs/RELEASE.md` when changing build, signing, or release metadata.
+5. Identify the current milestone.
+6. Implement only what is required for that milestone.
+7. Run the relevant checks.
+8. Update the Decision Log when a technical assumption is validated or rejected.
+9. Do not broaden the scope without explicit instruction.
 
 When uncertain, prefer an experiment that validates the riskiest assumption with the least code.

@@ -1,21 +1,22 @@
-# POC Camera
+# Family Camera
 
-Proof of concept for a family-friendly Android application that provides remote
-access to a private [Frigate](https://frigate.video/) installation through
-embedded Tailscale connectivity, without requiring the official Tailscale
-Android application.
+Family-friendly Android application that provides remote access to a private
+[Frigate](https://frigate.video/) installation through embedded Tailscale
+connectivity, without requiring the official Tailscale Android application.
 
-See `docs/REQUIREMENTS.md` and `docs/PLAN.md` for the full POC scope, milestones
-and decision log.
+See `docs/REQUIREMENTS.md`, `docs/PLAN.md`, and `docs/V1.md` for the technical
+history and scope. See `docs/RELEASE.md` for Play Store build and signing
+instructions.
 
 ## Status
 
-Phase 4 — Live Video Spike. The app probes Frigate over the home LAN first and
-falls back to the embedded Tailscale network when the local attempt fails, then
-plays one go2rtc HLS/fMP4 camera stream with ExoPlayer over the chosen
-transport. On-device validation: remote connectivity, stream discovery, live
-playback, lock/unlock resume and network-switch reconnect (see the PLAN.md
-decision log). Phases 1-3 are documented there as well.
+V1 feature-complete. The app probes Frigate over the home LAN first and falls
+back to the embedded Tailscale network when the local attempt fails, then plays
+one go2rtc HLS/fMP4 camera stream with ExoPlayer over the chosen transport. The
+V1 validation passed on a physical Android device for remote connectivity,
+stream discovery, live playback, lock/unlock resume and network-switch reconnect
+(see the `docs/PLAN.md` decision log). The project is now in release
+engineering / Play Store readiness.
 
 ## Prerequisites
 
@@ -30,10 +31,24 @@ The Gradle wrapper is committed, so a local Gradle installation is not required.
 
 ## Commands
 
+Development and validation:
+
 ```text
 ./gradlew assembleDebug
 ./gradlew test
 ./gradlew lint
+```
+
+Play Store release AAB (requires signing credentials; see `docs/RELEASE.md`):
+
+```text
+./gradlew :app:bundleRelease
+```
+
+Local release APK (requires signing credentials; see `docs/RELEASE.md`):
+
+```text
+./gradlew :app:assembleRelease
 ```
 
 `assembleDebug` builds the embedded Tailscale AAR first (Go + gomobile) and then
@@ -72,30 +87,28 @@ Without a patched toolchain the build falls back to the standard Go toolchain:
 compilation succeeds, but `tsnet.Start()` fails on a physical Android 11+
 device with `netlinkrib: permission denied`.
 
-The debug APK is produced at `app/build/outputs/apk/debug/app-debug.apk`.
+The debug APK is produced at `app/build/outputs/apk/debug/app-debug.apk`. The
+release APK is produced at `app/build/outputs/apk/release/app-release.apk` and
+the Play Store AAB at `app/build/outputs/bundle/release/app-release.aab`.
 
-To install on a connected physical device:
+To install the debug build on a connected physical device:
 
 ```text
 ./gradlew installDebug
 ```
 
-## On-device test (Phase 2)
+## On-device test (V1)
 
 1. Install and launch the app.
-2. The app probes Frigate over the local network first:
-   - **Home Wi-Fi:** the app shows `Connected via LOCAL` and the Frigate
-     version; Tailscale stays stopped.
+2. Complete the one-time administrator setup if this is the first install:
+   enter the Frigate URL and test the connection.
+3. The app probes Frigate over the local network first:
+   - **Home Wi-Fi:** the app connects locally; Tailscale stays stopped.
    - **Mobile data / non-home Wi-Fi:** the local probe fails within ~2 s, the
-     embedded Tailscale node starts, and the app shows `Connected via TAILSCALE`
-     plus the Frigate version.
-3. If the embedded node has never been enrolled, the app shows a
+     embedded Tailscale node starts, and the app connects through Tailscale.
+4. If the embedded node has never been enrolled, the app shows a
    `login.tailscale.com/...` URL. Open it in a browser signed in to the tailnet
    admin account, then tap **Retry**.
-
-The used transport is also visible in logcat under the `FrigateConnection` tag
-(`local probe started/succeeded/failed`, `Tailscale fallback started`,
-`Frigate probe via Tailscale started/succeeded`, `connection failed`).
 
 The Frigate URL is editable in the app before connecting and defaults to the
 build-time value (also overridable at build time):
@@ -152,7 +165,8 @@ current stable, mutually compatible options for the installed SDK platform
 
 ## Validation status
 
-Phase 0 exit condition requires a blank/minimal APK running on a physical
-Android device. This repository verifies `assembleDebug`, `test` and `lint`
-in the development environment; the on-device launch test must still be
-performed.
+V1 was validated on a physical Android device for LOCAL and TAILSCALE
+connectivity, live playback, network-switch recovery, lock/unlock resume, and
+Tailscale enrollment. The standard development gates are `test`, `lint`,
+`:app:assembleDebug`, and `:app:bundleRelease` (the latter requires signing
+credentials).

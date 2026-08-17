@@ -155,7 +155,7 @@ internal fun LiveView(
                     unavailable = true
                 } else {
                     val url = streams.resolveMediaPlaylistUrl(baseUrl, name, STREAMS_TIMEOUT_MS)
-                    Log.i(TAG, "live stream resolved: camera=$cameraId stream=$name -> $url via $transport")
+                    Log.i(TAG, "live stream resolved: camera=$cameraId stream=$name via $transport")
                     streamResolved = true
                     streamUrl = url
                     recoveryExhausted = false
