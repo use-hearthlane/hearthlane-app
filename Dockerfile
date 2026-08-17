@@ -1,7 +1,7 @@
 FROM eclipse-temurin:21-jdk AS java
 FROM golang:1.25-bookworm AS go
 
-FROM opencode-base:1
+FROM opencode-base
 
 USER root
 

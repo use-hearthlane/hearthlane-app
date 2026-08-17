@@ -18,6 +18,8 @@
     <string name="live_view_playing">Playing</string>
     <string name="live_view_play">Play</string>
     <string name="live_view_stop">Stop</string>
+    <string name="enter_fullscreen">Enter fullscreen</string>
+    <string name="exit_fullscreen">Exit fullscreen</string>
 
     <string name="setup_title">Initial setup</string>
     <string name="settings_title">Server settings</string>
@@ -68,6 +70,9 @@
     <string name="home_cameras_error">Could not load cameras.</string>
     <string name="home_connection_error">Could not reach the camera server.</string>
     <string name="camera_unavailable">Camera unavailable</string>
+    <string name="connection_status_connected">Connected</string>
+    <string name="connection_status_connecting">Connecting</string>
+    <string name="connection_status_problem">Connection problem</string>
 
     <!-- Camera discovery (administrator-facing) -->
     <string name="camera_discovery_title">Discovered cameras</string>

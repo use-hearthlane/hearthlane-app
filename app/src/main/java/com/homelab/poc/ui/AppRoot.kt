@@ -41,6 +41,7 @@ import com.homelab.poc.setup.shouldShowSetup
 import com.homelab.poc.tailscale.TsnetGatewayImpl
 import com.homelab.poc.thumbnail.CameraThumbnailModelFactory
 import com.homelab.poc.thumbnail.FrigateSnapshotImageLoader
+import com.homelab.poc.ui.theme.FamilyCameraTheme
 
 /**
  * V1 composition root: loads the persisted settings, owns the embedded
@@ -66,7 +67,7 @@ fun AppRoot(
 
     val settingsReady by settings.ready.collectAsState()
     if (!settingsReady) {
-        MaterialTheme {
+        FamilyCameraTheme {
             Surface(modifier = Modifier.fillMaxSize()) {
                 Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     Text(text = "Loading settings…")
@@ -162,129 +163,131 @@ fun AppRoot(
         navigation.navigateBack()
     }
 
-    if (shouldShowSetup(setupComplete)) {
-        // First run: the setup gates the app. The shared controller is
-        // intentionally not started here: no network-driven re-probe runs
-        // while the administrator configures the server. Setup only reuses the
-        // probe path (FrigateConnectionManager) through controller.testConnection.
-        SetupScreen(
-            controller = controller,
-            settings = settings,
-            title = stringResource(R.string.setup_title),
-            onFinished = { navigation.resetTo(Screen.Home) },
-        )
-        return
-    }
-
-    when (val screen = navigation.current) {
-        Screen.Home -> {
-            // The network-change listener and discovery observer only run during
-            // normal use; leaving Home (opening setup) stops them until Home is
-            // shown again.
-            DisposableEffect(controller) {
-                controller.start()
-                cameraDiscovery.start()
-                onDispose {
-                    cameraDiscovery.stop()
-                    controller.stop()
-                }
-            }
-            HomeScreen(
-                controller = controller,
-                cameraDiscovery = cameraDiscovery,
-                thumbnailFactory = thumbnailFactory,
-                snapshotImageLoader = snapshotImageLoader,
-                baseUrl = baseUrl,
-                onOpenSettings = { navigation.navigateTo(Screen.Settings) },
-                onCameraSelected = { camera ->
-                    selectedCamera = camera
-                    navigation.navigateTo(Screen.Live(camera.id))
-                },
-            )
-        }
-        Screen.Setup -> {
+    FamilyCameraTheme {
+        if (shouldShowSetup(setupComplete)) {
+            // First run: the setup gates the app. The shared controller is
+            // intentionally not started here: no network-driven re-probe runs
+            // while the administrator configures the server. Setup only reuses the
+            // probe path (FrigateConnectionManager) through controller.testConnection.
             SetupScreen(
                 controller = controller,
                 settings = settings,
-                title = stringResource(R.string.settings_title),
+                title = stringResource(R.string.setup_title),
                 onFinished = { navigation.resetTo(Screen.Home) },
-                onBack = { navigation.navigateBack() },
-                enrollmentRequired = authRequired,
-                authUrl = enrollmentAuthUrl,
             )
+            return@FamilyCameraTheme
         }
-        Screen.Settings -> {
-            SettingsScreen(
-                nodeHostname = AppSettings.nodeHostname(nodeSuffix),
-                appVersion = BuildConfig.VERSION_NAME,
-                appBuild = BuildConfig.VERSION_CODE.toString(),
-                onOpenServerSettings = { navigation.navigateTo(Screen.Setup) },
-                onOpenDiagnostics = { navigation.navigateTo(Screen.Diagnostics) },
-                onResetTailscale = {
-                    // Clears the node identity, then opens the server-settings
-                    // screen so the administrator can test the connection and
-                    // complete the interactive re-enrollment.
-                    controller.resetTailscale()
-                    navigation.navigateTo(Screen.Setup)
-                },
-                onBack = { navigation.navigateBack() },
-            )
-        }
-        Screen.Diagnostics -> {
-            // The diagnostics screen shows live connectivity state, so the
-            // network-change listener stays active while it is shown (same
-            // lifecycle as Home and the live view).
-            DisposableEffect(controller) {
-                controller.start()
-                onDispose { controller.stop() }
-            }
-            DiagnosticsScreen(
-                controller = controller,
-                playbackSnapshot = playbackSnapshot,
-                appVersion = BuildConfig.VERSION_NAME,
-                onRetryConnection = { controller.connect(restartPlayback = false) },
-                onBack = { navigation.navigateBack() },
-            )
-        }
-        is Screen.Live -> {
-            // Keep the network-change listener alive while live video is shown.
-            // When the Live screen became a separate destination (V1.3) the
-            // listener was scoped to Home only, so turning on Wi-Fi while
-            // watching would never re-probe: the connection stayed on
-            // Tailscale even though the LAN had become reachable. The POC
-            // embedded the live view in Home where the listener was always
-            // active; this restores that behavior.
-            DisposableEffect(controller) {
-                controller.start()
-                onDispose { controller.stop() }
-            }
-            val camera = resolveLiveCamera(screen.cameraId, selectedCamera, discoveryState)
 
-            // The single decision point for the Live branch. It prevents the
-            // enrollment-routing race: when auth is required we must NOT call
-            // navigateBack() here; the global LaunchedEffect(authRequired) is
-            // the only place that pushes Screen.Setup.
-            when (liveDestination(connection, camera)) {
-                LiveDestination.WaitForEnrollment -> {
-                    ConnectingPlaceholder(text = stringResource(R.string.home_connecting_body))
+        when (val screen = navigation.current) {
+            Screen.Home -> {
+                // The network-change listener and discovery observer only run during
+                // normal use; leaving Home (opening setup) stops them until Home is
+                // shown again.
+                DisposableEffect(controller) {
+                    controller.start()
+                    cameraDiscovery.start()
+                    onDispose {
+                        cameraDiscovery.stop()
+                        controller.stop()
+                    }
                 }
-                LiveDestination.RenderLive -> {
-                    // liveDestination guarantees camera != null and connection is Connected here.
-                    LiveScreen(
-                        cameraId = screen.cameraId,
-                        displayName = camera!!.displayName,
-                        baseUrl = baseUrl,
-                        gateway = controller.gateway,
-                        transport = (connection as FrigateConnection.Connected).transport,
-                        connectAttempt = connectAttempt,
-                        networkTick = networkTick,
-                        playbackSnapshotStore = playbackSnapshotStore,
-                        onBack = { navigation.navigateBack() },
-                    )
+                HomeScreen(
+                    controller = controller,
+                    cameraDiscovery = cameraDiscovery,
+                    thumbnailFactory = thumbnailFactory,
+                    snapshotImageLoader = snapshotImageLoader,
+                    baseUrl = baseUrl,
+                    onOpenSettings = { navigation.navigateTo(Screen.Settings) },
+                    onCameraSelected = { camera ->
+                        selectedCamera = camera
+                        navigation.navigateTo(Screen.Live(camera.id))
+                    },
+                )
+            }
+            Screen.Setup -> {
+                SetupScreen(
+                    controller = controller,
+                    settings = settings,
+                    title = stringResource(R.string.settings_title),
+                    onFinished = { navigation.resetTo(Screen.Home) },
+                    onBack = { navigation.navigateBack() },
+                    enrollmentRequired = authRequired,
+                    authUrl = enrollmentAuthUrl,
+                )
+            }
+            Screen.Settings -> {
+                SettingsScreen(
+                    nodeHostname = AppSettings.nodeHostname(nodeSuffix),
+                    appVersion = BuildConfig.VERSION_NAME,
+                    appBuild = BuildConfig.VERSION_CODE.toString(),
+                    onOpenServerSettings = { navigation.navigateTo(Screen.Setup) },
+                    onOpenDiagnostics = { navigation.navigateTo(Screen.Diagnostics) },
+                    onResetTailscale = {
+                        // Clears the node identity, then opens the server-settings
+                        // screen so the administrator can test the connection and
+                        // complete the interactive re-enrollment.
+                        controller.resetTailscale()
+                        navigation.navigateTo(Screen.Setup)
+                    },
+                    onBack = { navigation.navigateBack() },
+                )
+            }
+            Screen.Diagnostics -> {
+                // The diagnostics screen shows live connectivity state, so the
+                // network-change listener stays active while it is shown (same
+                // lifecycle as Home and the live view).
+                DisposableEffect(controller) {
+                    controller.start()
+                    onDispose { controller.stop() }
                 }
-                LiveDestination.GoBack -> {
-                    // Camera not found or connection lost without pending enrollment.
-                    navigation.navigateBack()
+                DiagnosticsScreen(
+                    controller = controller,
+                    playbackSnapshot = playbackSnapshot,
+                    appVersion = BuildConfig.VERSION_NAME,
+                    onRetryConnection = { controller.connect(restartPlayback = false) },
+                    onBack = { navigation.navigateBack() },
+                )
+            }
+            is Screen.Live -> {
+                // Keep the network-change listener alive while live video is shown.
+                // When the Live screen became a separate destination (V1.3) the
+                // listener was scoped to Home only, so turning on Wi-Fi while
+                // watching would never re-probe: the connection stayed on
+                // Tailscale even though the LAN had become reachable. The POC
+                // embedded the live view in Home where the listener was always
+                // active; this restores that behavior.
+                DisposableEffect(controller) {
+                    controller.start()
+                    onDispose { controller.stop() }
+                }
+                val camera = resolveLiveCamera(screen.cameraId, selectedCamera, discoveryState)
+
+                // The single decision point for the Live branch. It prevents the
+                // enrollment-routing race: when auth is required we must NOT call
+                // navigateBack() here; the global LaunchedEffect(authRequired) is
+                // the only place that pushes Screen.Setup.
+                when (liveDestination(connection, camera)) {
+                    LiveDestination.WaitForEnrollment -> {
+                        ConnectingPlaceholder(text = stringResource(R.string.home_connecting_body))
+                    }
+                    LiveDestination.RenderLive -> {
+                        // liveDestination guarantees camera != null and connection is Connected here.
+                        LiveScreen(
+                            cameraId = screen.cameraId,
+                            displayName = camera!!.displayName,
+                            baseUrl = baseUrl,
+                            gateway = controller.gateway,
+                            transport = (connection as FrigateConnection.Connected).transport,
+                            connectAttempt = connectAttempt,
+                            networkTick = networkTick,
+                            playbackSnapshotStore = playbackSnapshotStore,
+                            onBack = { navigation.navigateBack() },
+                        )
+                    }
+                    LiveDestination.GoBack -> {
+                        // Camera not found or connection lost without pending enrollment.
+                        navigation.navigateBack()
+                    }
                 }
             }
         }

@@ -37,6 +37,10 @@ services:
       # Shared OpenCode configuration.
       - ${HOME}/.config/opencode:/home/opencode/.config/opencode
 
+      # Persistent OpenCode sessions/data
+      - opencode-share:/home/opencode/.local/share/opencode
+      - opencode-state:/home/opencode/.local/state/opencode
+
       # SSH agent only; private keys are not mounted.
       - ${SSH_AUTH_SOCK}:/ssh-agent
 
@@ -58,3 +62,7 @@ services:
       - /run:rw,nosuid,nodev,noexec,size=64m,mode=0755
 
     restart: "no"
+
+volumes:
+  opencode-share:
+  opencode-state:

@@ -8,9 +8,15 @@ import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Error
+import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -19,9 +25,9 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -33,6 +39,8 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import coil3.ImageLoader
@@ -55,10 +63,10 @@ import com.homelab.poc.thumbnail.CameraThumbnailModelFactory
  * and an unavailable state when the camera is not playable. Tapping a playable
  * card navigates to the live view for that camera id.
  *
- * Infrastructure details (transport, URL, Frigate version, raw errors) are not
- * shown in the normal flow; connection state is expressed in product language
- * only (Connecting / Live / Try again). The full discovery state is handled:
- * loading, loaded, empty, error, and individual unavailable cameras.
+ * Connection state is expressed through a compact TopAppBar indicator only
+ * (connected / connecting / problem); no transport details are shown.
+ * The full discovery state is handled: loading, loaded, empty, error,
+ * and individual unavailable cameras.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -85,68 +93,92 @@ fun HomeScreen(
             TopAppBar(
                 title = { Text(stringResource(R.string.home_title)) },
                 actions = {
+                    ConnectionStatusIndicator(
+                        connection = connection,
+                        connecting = connecting,
+                    )
                     IconButton(onClick = cameraDiscovery::refresh) {
                         Icon(
-                            painter = painterResource(R.drawable.ic_refresh),
+                            imageVector = Icons.Filled.Refresh,
                             contentDescription = stringResource(R.string.refresh_button),
                         )
                     }
-                    TextButton(onClick = onOpenSettings) {
-                        Text(stringResource(R.string.settings_button))
+                    IconButton(onClick = onOpenSettings) {
+                        Icon(
+                            imageVector = Icons.Filled.Settings,
+                            contentDescription = stringResource(R.string.settings_button),
+                        )
                     }
                 },
             )
         },
     ) { innerPadding ->
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(innerPadding)
-                .padding(horizontal = 16.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp),
-        ) {
-            ConnectionHeader(
-                connection = connection,
-                connecting = connecting,
-                modifier = Modifier.padding(top = 8.dp),
-            )
-            CameraGridSection(
-                connection = connection,
-                discoveryState = discoveryState,
-                refreshKey = refreshKey,
-                baseUrl = baseUrl,
-                thumbnailFactory = thumbnailFactory,
-                snapshotImageLoader = snapshotImageLoader,
-                onCameraSelected = onCameraSelected,
-                onRetry = { controller.connect(restartPlayback = false) },
-                onRefresh = cameraDiscovery::refresh,
-            )
-        }
+        CameraGridSection(
+            connection = connection,
+            discoveryState = discoveryState,
+            refreshKey = refreshKey,
+            baseUrl = baseUrl,
+            thumbnailFactory = thumbnailFactory,
+            snapshotImageLoader = snapshotImageLoader,
+            onCameraSelected = onCameraSelected,
+            onRetry = { controller.connect(restartPlayback = false) },
+            onRefresh = cameraDiscovery::refresh,
+            modifier = Modifier.padding(innerPadding),
+        )
     }
 }
 
+/**
+ * Compact connection status indicator for the TopAppBar.
+ *
+ * - Connected: check icon.
+ * - Connecting: small progress indicator.
+ * - Failed: error icon in error color.
+ *
+ * Does not rely on colour alone: each state has a distinct shape and
+ * a contentDescription for screen readers.
+ */
 @Composable
-private fun ConnectionHeader(
+private fun ConnectionStatusIndicator(
     connection: FrigateConnection?,
     connecting: Boolean,
-    modifier: Modifier = Modifier,
 ) {
-    val label = when {
-        connecting || connection == null -> stringResource(R.string.home_connecting)
-        connection is FrigateConnection.Connected -> stringResource(R.string.home_live)
-        connection is FrigateConnection.Failed -> stringResource(R.string.home_try_again)
-        else -> stringResource(R.string.home_connecting)
+    when {
+        connecting || connection == null -> {
+            val description = stringResource(R.string.connection_status_connecting)
+            Box(
+                modifier = Modifier
+                    .size(48.dp)
+                    .semantics { contentDescription = description },
+                contentAlignment = Alignment.Center,
+            ) {
+                CircularProgressIndicator(
+                    modifier = Modifier.size(20.dp),
+                    strokeWidth = 2.dp,
+                )
+            }
+        }
+        connection is FrigateConnection.Connected -> {
+            Icon(
+                imageVector = Icons.Filled.Check,
+                contentDescription = stringResource(R.string.connection_status_connected),
+                tint = MaterialTheme.colorScheme.primary,
+                modifier = Modifier
+                    .size(48.dp)
+                    .padding(14.dp),
+            )
+        }
+        connection is FrigateConnection.Failed -> {
+            Icon(
+                imageVector = Icons.Filled.Error,
+                contentDescription = stringResource(R.string.connection_status_problem),
+                tint = MaterialTheme.colorScheme.error,
+                modifier = Modifier
+                    .size(48.dp)
+                    .padding(14.dp),
+            )
+        }
     }
-    Text(
-        text = label,
-        style = MaterialTheme.typography.titleMedium,
-        color = when (connection) {
-            is FrigateConnection.Connected -> MaterialTheme.colorScheme.primary
-            is FrigateConnection.Failed -> MaterialTheme.colorScheme.error
-            else -> MaterialTheme.colorScheme.onSurface
-        },
-        modifier = modifier,
-    )
 }
 
 @Composable
@@ -160,29 +192,32 @@ internal fun CameraGridSection(
     onCameraSelected: (Camera) -> Unit,
     onRetry: () -> Unit,
     onRefresh: () -> Unit,
+    modifier: Modifier = Modifier,
 ) {
-    when (val conn = connection) {
-        is FrigateConnection.Connected -> when (val state = discoveryState) {
-            CameraDiscoveryState.Loading -> LoadingState(stringResource(R.string.home_loading_cameras))
-            CameraDiscoveryState.Empty -> EmptyState(stringResource(R.string.home_no_cameras))
-            is CameraDiscoveryState.Error -> ErrorState(
-                message = stringResource(R.string.home_cameras_error),
-                onRetry = onRefresh,
+    Box(modifier = modifier) {
+        when (val conn = connection) {
+            is FrigateConnection.Connected -> when (val state = discoveryState) {
+                CameraDiscoveryState.Loading -> LoadingState(stringResource(R.string.home_loading_cameras))
+                CameraDiscoveryState.Empty -> EmptyState(stringResource(R.string.home_no_cameras))
+                is CameraDiscoveryState.Error -> ErrorState(
+                    message = stringResource(R.string.home_cameras_error),
+                    onRetry = onRefresh,
+                )
+                is CameraDiscoveryState.Loaded -> CameraGrid(
+                    cameras = state.cameras,
+                    refreshKey = refreshKey,
+                    baseUrl = baseUrl,
+                    thumbnailFactory = thumbnailFactory,
+                    snapshotImageLoader = snapshotImageLoader,
+                    onCameraSelected = onCameraSelected,
+                )
+            }
+            is FrigateConnection.Failed -> ErrorState(
+                message = stringResource(R.string.home_connection_error),
+                onRetry = onRetry,
             )
-            is CameraDiscoveryState.Loaded -> CameraGrid(
-                cameras = state.cameras,
-                refreshKey = refreshKey,
-                baseUrl = baseUrl,
-                thumbnailFactory = thumbnailFactory,
-                snapshotImageLoader = snapshotImageLoader,
-                onCameraSelected = onCameraSelected,
-            )
+            else -> LoadingState(stringResource(R.string.home_connecting_body))
         }
-        is FrigateConnection.Failed -> ErrorState(
-            message = stringResource(R.string.home_connection_error),
-            onRetry = onRetry,
-        )
-        else -> LoadingState(stringResource(R.string.home_connecting_body))
     }
 }
 
@@ -366,7 +401,7 @@ private fun ErrorState(
                 textAlign = TextAlign.Center,
                 modifier = Modifier.padding(bottom = 16.dp),
             )
-            Button(onClick = onRetry) {
+            OutlinedButton(onClick = onRetry) {
                 Text(stringResource(R.string.retry_button))
             }
         }

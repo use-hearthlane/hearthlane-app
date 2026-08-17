@@ -1,16 +1,29 @@
 package com.homelab.poc.ui
 
 import android.annotation.SuppressLint
+import android.content.res.Configuration
 import android.os.SystemClock
 import android.util.Log
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Fullscreen
+import androidx.compose.material.icons.filled.FullscreenExit
 import androidx.compose.material3.Button
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -23,6 +36,8 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
@@ -57,10 +72,12 @@ private const val TAG = "PocCamera"
  * [com.homelab.poc.core.connectivity.HttpBytesGetter] selected by [transport],
  * so the Tailscale path can never touch the Android network.
  *
- * V1.6: all technical details (transport label, metrics, error codes) are
- * removed from the family-facing UI. Only product states are shown. When the
- * LOCAL recovery budget is exhausted, a simple "Connection lost" /
- * "Try again" state is surfaced.
+ * When playing, only the video is shown — no status labels or stop controls.
+ * A fullscreen toggle overlay is available on the player in all modes.
+ *
+ * @param fullscreen when true the player fills the entire screen with no
+ *   chrome. The fullscreen toggle overlay allows exiting back to normal mode.
+ * @param onToggleFullscreen called when the user taps the fullscreen toggle.
  */
 @SuppressLint("UnsafeOptInUsageError")
 @OptIn(UnstableApi::class)
@@ -75,13 +92,14 @@ internal fun LiveView(
     modifier: Modifier = Modifier,
     playbackSnapshotStore: PlaybackSnapshotStore? = null,
     testGetter: HttpBytesGetter? = null,
+    fullscreen: Boolean = false,
+    onToggleFullscreen: () -> Unit = {},
 ) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
+    val isLandscape = LocalConfiguration.current.orientation ==
+        Configuration.ORIENTATION_LANDSCAPE
     val getter = testGetter ?: remember(transport, gateway) { bytesGetterFor(transport, gateway) }
-    // Keyed by transport: the getter is transport-specific, so a network-driven
-    // transport switch must rebuild the player on the new getter instead of
-    // continuing on the dead one.
     val player = remember(transport, gateway) {
         Log.i(TAG, "player created for transport=$transport")
         LiveStreamPlayer(context.applicationContext, getter)
@@ -97,9 +115,6 @@ internal fun LiveView(
     var recoveryCount by remember { mutableStateOf(0) }
     var autoRecovery by remember { mutableStateOf(0) }
     var playingSince by remember { mutableStateOf<Long?>(null) }
-    // True when LOCAL recovery budget is exhausted and the player is dead.
-    // Shows "Connection lost" / "Try again" instead of "Playing" on black.
-    // Cleared by manual retry or successful re-establishment.
     var recoveryExhausted by remember { mutableStateOf(false) }
 
     DisposableEffect(player) {
@@ -197,10 +212,6 @@ internal fun LiveView(
         player.state.collectLatest { playbackStatus = it }
     }
 
-    // Auto-recovery for mid-playback failures. The budget renews only after a
-    // session played stably. Over TAILSCALE every error triggers a fresh-session
-    // recovery with no budget. LOCAL stays bounded because a genuine failure
-    // there is not expected.
     LaunchedEffect(playbackStatus, streamUrl, transport) {
         when (val status = playbackStatus) {
             is PlaybackStatus.Playing -> {
@@ -232,10 +243,60 @@ internal fun LiveView(
         }
     }
 
-    Column(modifier = modifier.fillMaxWidth()) {
-        val url = streamUrl
+    val onRetry: () -> Unit = {
+        recoveryExhausted = false
+        autoRecovery = 0
+        discoverAndPlay()
+    }
+
+    if (fullscreen) {
+        LiveViewFullscreen(
+            player = player,
+            streamUrl = streamUrl,
+            unavailable = unavailable,
+            recoveryExhausted = recoveryExhausted,
+            onRetry = onRetry,
+            onToggleFullscreen = onToggleFullscreen,
+        )
+    } else if (isLandscape) {
+        LiveViewLandscape(
+            player = player,
+            streamUrl = streamUrl,
+            unavailable = unavailable,
+            recoveryExhausted = recoveryExhausted,
+            onRetry = onRetry,
+            onToggleFullscreen = onToggleFullscreen,
+            modifier = modifier,
+        )
+    } else {
+        LiveViewPortrait(
+            player = player,
+            streamUrl = streamUrl,
+            unavailable = unavailable,
+            recoveryExhausted = recoveryExhausted,
+            onRetry = onRetry,
+            onToggleFullscreen = onToggleFullscreen,
+            modifier = modifier,
+        )
+    }
+}
+
+@SuppressLint("UnsafeOptInUsageError")
+@OptIn(UnstableApi::class)
+@Composable
+private fun LiveViewPortrait(
+    player: LiveStreamPlayer,
+    streamUrl: String?,
+    unavailable: Boolean,
+    recoveryExhausted: Boolean,
+    onRetry: () -> Unit,
+    onToggleFullscreen: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Column(
+        modifier = modifier.fillMaxWidth(),
+    ) {
         when {
-            // Recovery exhausted: show simple product state, not "Playing" on black.
             recoveryExhausted && !unavailable -> {
                 Spacer(Modifier.height(32.dp))
                 Text(
@@ -245,17 +306,92 @@ internal fun LiveView(
                 )
                 Spacer(Modifier.height(16.dp))
                 Button(
-                    onClick = {
-                        recoveryExhausted = false
-                        autoRecovery = 0
-                        discoverAndPlay()
-                    },
+                    onClick = onRetry,
                     modifier = Modifier.align(Alignment.CenterHorizontally),
                 ) {
                     Text(stringResource(R.string.home_try_again))
                 }
             }
-            url != null -> {
+            streamUrl != null -> {
+                Box {
+                    AndroidView(
+                        factory = { ctx ->
+                            PlayerView(ctx).apply {
+                                useController = false
+                                setShowBuffering(PlayerView.SHOW_BUFFERING_WHEN_PLAYING)
+                                setPlayer(player.player)
+                            }
+                        },
+                        update = { view -> view.player = player.player },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .aspectRatio(16f / 9f),
+                    )
+                    FullscreenToggle(
+                        onClick = onToggleFullscreen,
+                        modifier = Modifier
+                            .align(Alignment.BottomEnd)
+                            .padding(8.dp),
+                    )
+                }
+            }
+            unavailable -> {
+                Spacer(Modifier.height(32.dp))
+                Text(
+                    text = stringResource(R.string.live_view_camera_unavailable),
+                    style = MaterialTheme.typography.bodyMedium,
+                    modifier = Modifier.align(Alignment.CenterHorizontally),
+                )
+                Spacer(Modifier.height(8.dp))
+                OutlinedButton(
+                    onClick = onRetry,
+                    modifier = Modifier.align(Alignment.CenterHorizontally),
+                ) {
+                    Text(stringResource(R.string.home_try_again))
+                }
+            }
+            else -> Text(
+                text = stringResource(R.string.live_view_discovering),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(16.dp),
+            )
+        }
+    }
+}
+
+@SuppressLint("UnsafeOptInUsageError")
+@OptIn(UnstableApi::class)
+@Composable
+private fun LiveViewLandscape(
+    player: LiveStreamPlayer,
+    streamUrl: String?,
+    unavailable: Boolean,
+    recoveryExhausted: Boolean,
+    onRetry: () -> Unit,
+    onToggleFullscreen: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Box(modifier = modifier.fillMaxSize()) {
+        when {
+            recoveryExhausted && !unavailable -> {
+                Column(
+                    modifier = Modifier.align(Alignment.Center),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                ) {
+                    Text(
+                        text = stringResource(R.string.live_view_connection_lost),
+                        style = MaterialTheme.typography.bodyLarge,
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    Button(onClick = onRetry) {
+                        Text(stringResource(R.string.home_try_again))
+                    }
+                }
+            }
+            streamUrl != null -> {
                 AndroidView(
                     factory = { ctx ->
                         PlayerView(ctx).apply {
@@ -265,58 +401,144 @@ internal fun LiveView(
                         }
                     },
                     update = { view -> view.player = player.player },
+                    modifier = Modifier.fillMaxSize(),
+                )
+                FullscreenToggle(
+                    onClick = onToggleFullscreen,
                     modifier = Modifier
-                        .fillMaxWidth()
-                        .aspectRatio(16f / 9f),
+                        .align(Alignment.BottomEnd)
+                        .padding(12.dp),
                 )
             }
             unavailable -> {
-                Text(
-                    text = stringResource(R.string.live_view_camera_unavailable),
-                    style = MaterialTheme.typography.bodyMedium,
-                )
-                Button(onClick = { discoverAndPlay() }) {
-                    Text(stringResource(R.string.home_try_again))
+                Column(
+                    modifier = Modifier.align(Alignment.Center),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                ) {
+                    Text(
+                        text = stringResource(R.string.live_view_camera_unavailable),
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    OutlinedButton(onClick = onRetry) {
+                        Text(stringResource(R.string.home_try_again))
+                    }
                 }
             }
             else -> Text(
                 text = stringResource(R.string.live_view_discovering),
                 style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.align(Alignment.Center),
             )
         }
+    }
+}
 
-        if (!recoveryExhausted) {
-            Spacer(Modifier.height(8.dp))
-            Text(
-                text = playbackLabel(playbackStatus, recoveryExhausted),
-                style = MaterialTheme.typography.bodyMedium,
-            )
-        }
-        if (url != null && !recoveryExhausted) {
-            val idle = player.player.playbackState == Player.STATE_IDLE
-            if (idle) {
-                Button(onClick = { discoverAndPlay() }) {
-                    Text(stringResource(R.string.live_view_play))
-                }
-            } else {
-                Button(onClick = { player.stop() }) {
-                    Text(stringResource(R.string.live_view_stop))
+@SuppressLint("UnsafeOptInUsageError")
+@OptIn(UnstableApi::class)
+@Composable
+private fun LiveViewFullscreen(
+    player: LiveStreamPlayer,
+    streamUrl: String?,
+    unavailable: Boolean,
+    recoveryExhausted: Boolean,
+    onRetry: () -> Unit,
+    onToggleFullscreen: () -> Unit,
+) {
+    Box(modifier = Modifier.fillMaxSize().background(Color.Black)) {
+        when {
+            recoveryExhausted && !unavailable -> {
+                Column(
+                    modifier = Modifier.align(Alignment.Center),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                ) {
+                    Text(
+                        text = stringResource(R.string.live_view_connection_lost),
+                        style = MaterialTheme.typography.bodyLarge,
+                        color = Color.White,
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    Button(onClick = onRetry) {
+                        Text(stringResource(R.string.home_try_again))
+                    }
                 }
             }
+            streamUrl != null -> {
+                AndroidView(
+                    factory = { ctx ->
+                        PlayerView(ctx).apply {
+                            useController = false
+                            setShowBuffering(PlayerView.SHOW_BUFFERING_WHEN_PLAYING)
+                            setPlayer(player.player)
+                        }
+                    },
+                    update = { view -> view.player = player.player },
+                    modifier = Modifier.fillMaxSize(),
+                )
+                FullscreenToggle(
+                    onClick = onToggleFullscreen,
+                    isFullscreen = true,
+                    modifier = Modifier
+                        .align(Alignment.BottomEnd)
+                        .padding(16.dp),
+                )
+            }
+            unavailable -> {
+                Column(
+                    modifier = Modifier.align(Alignment.Center),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                ) {
+                    Text(
+                        text = stringResource(R.string.live_view_camera_unavailable),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = Color.White,
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    OutlinedButton(onClick = onRetry) {
+                        Text(stringResource(R.string.home_try_again))
+                    }
+                }
+            }
+            else -> Text(
+                text = stringResource(R.string.live_view_discovering),
+                style = MaterialTheme.typography.bodySmall,
+                color = Color.White.copy(alpha = 0.7f),
+                modifier = Modifier.align(Alignment.Center),
+            )
         }
     }
 }
 
 @Composable
-private fun playbackLabel(status: PlaybackStatus, recoveryExhausted: Boolean): String =
-    when {
-        recoveryExhausted -> stringResource(R.string.live_view_connection_lost)
-        status is PlaybackStatus.Idle -> stringResource(R.string.live_view_starting)
-        status is PlaybackStatus.Loading -> stringResource(R.string.live_view_starting)
-        status is PlaybackStatus.Playing -> stringResource(R.string.live_view_playing)
-        status is PlaybackStatus.Error -> stringResource(R.string.live_view_playing)
-        else -> stringResource(R.string.live_view_starting)
+private fun FullscreenToggle(
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    isFullscreen: Boolean = false,
+) {
+    IconButton(
+        onClick = onClick,
+        modifier = modifier.size(40.dp),
+        colors = IconButtonDefaults.iconButtonColors(
+            containerColor = Color.Black.copy(alpha = 0.4f),
+            contentColor = Color.White,
+        ),
+    ) {
+        Icon(
+            imageVector = if (isFullscreen) {
+                Icons.Filled.FullscreenExit
+            } else {
+                Icons.Filled.Fullscreen
+            },
+            contentDescription = if (isFullscreen) {
+                stringResource(R.string.exit_fullscreen)
+            } else {
+                stringResource(R.string.enter_fullscreen)
+            },
+            modifier = Modifier.size(24.dp),
+        )
     }
+}
 
 private const val STREAMS_TIMEOUT_MS = 10_000L
 private const val MAX_AUTO_RECOVERY = 2

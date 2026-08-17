@@ -3,14 +3,20 @@ package com.homelab.poc.ui
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -51,8 +57,11 @@ fun SettingsScreen(
             TopAppBar(
                 title = { Text(stringResource(R.string.settings_screen_title)) },
                 navigationIcon = {
-                    TextButton(onClick = onBack) {
-                        Text(stringResource(R.string.back_button))
+                    IconButton(onClick = onBack) {
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                            contentDescription = stringResource(R.string.back_button),
+                        )
                     }
                 },
             )
@@ -65,46 +74,85 @@ fun SettingsScreen(
                 .verticalScroll(rememberScrollState())
                 .padding(16.dp),
         ) {
+            // -- Frigate section --
+            Text(
+                text = stringResource(R.string.settings_admin_title),
+                style = MaterialTheme.typography.titleMedium,
+                color = MaterialTheme.colorScheme.primary,
+            )
+            Spacer(Modifier.height(8.dp))
+            OutlinedButton(
+                onClick = onOpenServerSettings,
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Text(stringResource(R.string.settings_server_row))
+            }
+
+            Spacer(Modifier.height(16.dp))
+            HorizontalDivider()
+            Spacer(Modifier.height(16.dp))
+
+            // -- Tailscale section --
+            Text(
+                text = "Tailscale",
+                style = MaterialTheme.typography.titleMedium,
+                color = MaterialTheme.colorScheme.primary,
+            )
+            Spacer(Modifier.height(4.dp))
+            Text(
+                text = stringResource(R.string.settings_node_hostname, nodeHostname),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Spacer(Modifier.height(8.dp))
+            OutlinedButton(
+                onClick = { confirmReset = true },
+                modifier = Modifier.fillMaxWidth(),
+                colors = androidx.compose.material3.ButtonDefaults.outlinedButtonColors(
+                    contentColor = MaterialTheme.colorScheme.error,
+                ),
+            ) {
+                Text(stringResource(R.string.settings_reset_tailscale))
+            }
+
+            Spacer(Modifier.height(16.dp))
+            HorizontalDivider()
+            Spacer(Modifier.height(16.dp))
+
+            // -- Diagnostics section --
+            Text(
+                text = stringResource(R.string.diagnostics_title),
+                style = MaterialTheme.typography.titleMedium,
+                color = MaterialTheme.colorScheme.primary,
+            )
+            Spacer(Modifier.height(8.dp))
+            OutlinedButton(
+                onClick = onOpenDiagnostics,
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Text(stringResource(R.string.settings_diagnostics_row))
+            }
+
+            Spacer(Modifier.height(16.dp))
+            HorizontalDivider()
+            Spacer(Modifier.height(16.dp))
+
+            // -- Application section --
             Text(
                 text = stringResource(R.string.settings_app_info_title),
                 style = MaterialTheme.typography.titleMedium,
+                color = MaterialTheme.colorScheme.primary,
             )
+            Spacer(Modifier.height(4.dp))
             Text(
                 text = stringResource(R.string.settings_app_version, appVersion),
                 style = MaterialTheme.typography.bodyMedium,
             )
             Text(
                 text = stringResource(R.string.settings_app_build, appBuild),
-                style = MaterialTheme.typography.bodyMedium,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
-            Spacer(Modifier.height(24.dp))
-
-            Text(
-                text = stringResource(R.string.settings_advanced_title),
-                style = MaterialTheme.typography.titleMedium,
-            )
-            Text(
-                text = stringResource(R.string.settings_node_hostname, nodeHostname),
-                style = MaterialTheme.typography.bodyMedium,
-            )
-            Spacer(Modifier.height(24.dp))
-
-            Text(
-                text = stringResource(R.string.settings_admin_title),
-                style = MaterialTheme.typography.titleMedium,
-            )
-            Spacer(Modifier.height(8.dp))
-            Button(onClick = onOpenServerSettings) {
-                Text(stringResource(R.string.settings_server_row))
-            }
-            Spacer(Modifier.height(8.dp))
-            Button(onClick = onOpenDiagnostics) {
-                Text(stringResource(R.string.settings_diagnostics_row))
-            }
-            Spacer(Modifier.height(8.dp))
-            Button(onClick = { confirmReset = true }) {
-                Text(stringResource(R.string.settings_reset_tailscale))
-            }
         }
     }
 

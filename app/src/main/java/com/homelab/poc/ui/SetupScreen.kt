@@ -12,12 +12,19 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.Button
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Surface
+import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -52,6 +59,7 @@ import kotlinx.coroutines.launch
  * Messages stay simple; the technical error text is only exposed through the
  * copy action (the full Diagnostics screen arrives in a later milestone).
  */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SetupScreen(
     controller: FrigateConnectionController,
@@ -103,101 +111,125 @@ fun SetupScreen(
         }
     }
 
-    MaterialTheme {
-        Surface(modifier = Modifier.fillMaxSize()) {
-            Column(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .verticalScroll(rememberScrollState())
-                    .padding(24.dp),
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.Center,
-            ) {
-                Text(
-                    text = title,
-                    style = MaterialTheme.typography.headlineMedium,
-                )
-                Text(
-                    text = stringResource(R.string.setup_subtitle),
-                    style = MaterialTheme.typography.bodyMedium,
-                )
-                Spacer(Modifier.height(24.dp))
-                Text(
-                    text = stringResource(R.string.setup_url_label),
-                    style = MaterialTheme.typography.labelLarge,
-                )
-                OutlinedTextField(
-                    value = url,
-                    onValueChange = ::onUrlChanged,
-                    label = { Text(stringResource(R.string.frigate_url_label)) },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth(),
-                )
-                Spacer(Modifier.height(24.dp))
-                Text(
-                    text = stringResource(R.string.connection_state_label),
-                    style = MaterialTheme.typography.labelLarge,
-                )
-                when (val current = state) {
-                    SetupFlow.State.EnterConfig ->
-                        Text(
-                            text = stringResource(R.string.setup_enter_config),
-                            style = MaterialTheme.typography.bodyMedium,
-                        )
-                    SetupFlow.State.Testing ->
-                        Text(
-                            text = stringResource(R.string.setup_testing),
-                            style = MaterialTheme.typography.bodyMedium,
-                        )
-                    is SetupFlow.State.Connected -> {
-                        Text(
-                            text = stringResource(R.string.setup_connected),
-                            style = MaterialTheme.typography.titleLarge,
-                        )
-                        Spacer(Modifier.height(8.dp))
-                        Text(
-                            text = stringResource(R.string.frigate_version_value, current.version),
-                            style = MaterialTheme.typography.bodyLarge,
-                        )
-                    }
-                    is SetupFlow.State.EnrollmentRequired ->
-                        EnrollmentSection(authUrl = current.authUrl)
-                    is SetupFlow.State.Failed -> {
-                        Text(
-                            text = stringResource(R.string.setup_failed),
-                            color = MaterialTheme.colorScheme.error,
-                            style = MaterialTheme.typography.titleLarge,
-                        )
-                        val clipboard = LocalClipboardManager.current
-                        TextButton(onClick = { clipboard.setText(AnnotatedString(DiagnosticsReport.sanitize(current.message))) }) {
-                            Text(stringResource(R.string.copy_error_button))
+    Scaffold(
+        topBar = {
+            if (onBack != null) {
+                TopAppBar(
+                    title = { Text(title) },
+                    navigationIcon = {
+                        IconButton(onClick = onBack) {
+                            Icon(
+                                imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                                contentDescription = stringResource(R.string.back_button),
+                            )
                         }
-                    }
-                }
-                Spacer(Modifier.height(32.dp))
-                if (state is SetupFlow.State.Connected) {
-                    Button(onClick = ::finish) {
-                        Text(stringResource(R.string.setup_finish_button))
-                    }
-                    Spacer(Modifier.height(8.dp))
-                }
-                val testing = state is SetupFlow.State.Testing
-                Button(
-                    onClick = ::test,
-                    enabled = url.isNotBlank() && !testing,
-                ) {
+                    },
+                )
+            }
+        },
+    ) { innerPadding ->
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(innerPadding)
+                .verticalScroll(rememberScrollState())
+                .padding(horizontal = 24.dp, vertical = 16.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Top,
+        ) {
+            if (onBack == null) {
+                Spacer(Modifier.height(24.dp))
+            }
+            Text(
+                text = title,
+                style = MaterialTheme.typography.headlineMedium,
+            )
+            Text(
+                text = stringResource(R.string.setup_subtitle),
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Spacer(Modifier.height(24.dp))
+            Text(
+                text = stringResource(R.string.setup_url_label),
+                style = MaterialTheme.typography.labelLarge,
+            )
+            Spacer(Modifier.height(8.dp))
+            OutlinedTextField(
+                value = url,
+                onValueChange = ::onUrlChanged,
+                label = { Text(stringResource(R.string.frigate_url_label)) },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth(),
+            )
+            Spacer(Modifier.height(24.dp))
+            Text(
+                text = stringResource(R.string.connection_state_label),
+                style = MaterialTheme.typography.labelLarge,
+            )
+            Spacer(Modifier.height(8.dp))
+            when (val current = state) {
+                SetupFlow.State.EnterConfig ->
                     Text(
-                        stringResource(
-                            if (state is SetupFlow.State.EnterConfig) R.string.setup_test_button
-                            else R.string.setup_retry_button,
-                        ),
+                        text = stringResource(R.string.setup_enter_config),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                SetupFlow.State.Testing ->
+                    Text(
+                        text = stringResource(R.string.setup_testing),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                is SetupFlow.State.Connected -> {
+                    Text(
+                        text = stringResource(R.string.setup_connected),
+                        style = MaterialTheme.typography.titleLarge,
+                        color = MaterialTheme.colorScheme.primary,
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    Text(
+                        text = stringResource(R.string.frigate_version_value, current.version),
+                        style = MaterialTheme.typography.bodyLarge,
                     )
                 }
-                onBack?.let {
-                    Spacer(Modifier.height(8.dp))
-                    TextButton(onClick = it) {
-                        Text(stringResource(R.string.back_button))
+                is SetupFlow.State.EnrollmentRequired ->
+                    EnrollmentSection(authUrl = current.authUrl)
+                is SetupFlow.State.Failed -> {
+                    Text(
+                        text = stringResource(R.string.setup_failed),
+                        color = MaterialTheme.colorScheme.error,
+                        style = MaterialTheme.typography.titleLarge,
+                    )
+                    val clipboard = LocalClipboardManager.current
+                    TextButton(onClick = { clipboard.setText(AnnotatedString(DiagnosticsReport.sanitize(current.message))) }) {
+                        Text(stringResource(R.string.copy_error_button))
                     }
+                }
+            }
+            Spacer(Modifier.height(24.dp))
+            if (state is SetupFlow.State.Connected) {
+                Button(onClick = ::finish) {
+                    Text(stringResource(R.string.setup_finish_button))
+                }
+                Spacer(Modifier.height(8.dp))
+            }
+            val testing = state is SetupFlow.State.Testing
+            OutlinedButton(
+                onClick = ::test,
+                enabled = url.isNotBlank() && !testing,
+            ) {
+                Text(
+                    stringResource(
+                        if (state is SetupFlow.State.EnterConfig) R.string.setup_test_button
+                        else R.string.setup_retry_button,
+                    ),
+                )
+            }
+            if (onBack != null) {
+                Spacer(Modifier.height(8.dp))
+                TextButton(onClick = onBack) {
+                    Text(stringResource(R.string.back_button))
                 }
             }
         }
@@ -222,6 +254,7 @@ private fun EnrollmentSection(authUrl: String?) {
         Text(
             text = stringResource(R.string.auth_url_hint),
             style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
         SelectionContainer {
             Text(
@@ -230,7 +263,7 @@ private fun EnrollmentSection(authUrl: String?) {
             )
         }
         Spacer(Modifier.height(8.dp))
-        Button(onClick = { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url))) }) {
+        OutlinedButton(onClick = { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url))) }) {
             Text(stringResource(R.string.open_auth_url_button))
         }
     } else {
@@ -238,6 +271,7 @@ private fun EnrollmentSection(authUrl: String?) {
         Text(
             text = stringResource(R.string.auth_url_pending_hint),
             style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
     }
 }
