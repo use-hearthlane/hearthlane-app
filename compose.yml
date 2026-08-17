@@ -30,10 +30,18 @@ services:
       GOCACHE: /workspace/.cache/go-build
       GOPATH: /workspace/.cache/go
 
+      RELEASE_STORE_FILE: /run/secrets/hearthlane_playstore.jks
+      RELEASE_STORE_PASSWORD: ${RELEASE_STORE_PASSWORD}
+      RELEASE_KEY_ALIAS: ${RELEASE_KEY_ALIAS}
+      RELEASE_KEY_PASSWORD: ${RELEASE_KEY_PASSWORD}
+
     volumes:
       # Current repository only.
       - .:/workspace
 
+      # Release
+      - ${HOME}/.config/hearthlane/playstore.jks:/run/secrets/hearthlane_playstore.jks:ro
+      
       # Shared OpenCode configuration.
       - ${HOME}/.config/opencode:/home/opencode/.config/opencode
 

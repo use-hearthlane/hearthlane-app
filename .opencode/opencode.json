@@ -16,6 +16,18 @@
       "models": {
         "free-forever": {
           "name": "Free Forever"
+        },
+        "coding":{
+          "name": "Coding"
+        },
+        "small-task":{
+          "name": "Bug fix"
+        },
+        "architect":{
+          "name": "Architect"
+        },
+        "premium":{
+          "name": "Premium"
         }
       }
     },
