@@ -1,54 +1,155 @@
-# Hearthlane
+<p align="center">
+  <img src="docs/assets/branding/hearthlane-logo.png" alt="Hearthlane" width="320" />
+</p>
 
-> Your private way home.
+<h1 align="center">Hearthlane</h1>
 
-Hearthlane is an open-source Android gateway for privately accessing services in
-your homelab without exposing them directly to the public Internet.
+<p align="center"><strong>Your private way home.</strong></p>
 
-It embeds Tailscale connectivity so you can reach your self-hosted services from
-outside your home LAN without installing the official Tailscale app. The first
-implemented integration is live camera viewing through
-[Frigate](https://frigate.video/) / go2rtc; the architecture is intended to
-support additional homelab services in future versions.
+<p align="center">
+  Open-source Android gateway &middot; private homelab access &middot; no public exposure
+</p>
 
-See `docs/REQUIREMENTS.md`, `docs/PLAN.md`, and `docs/V1.md` for the technical
-history and scope. See `docs/RELEASE.md` for Play Store build and signing
-instructions.
+---
 
-## Status
+## Overview
 
-V1 feature-complete. The Frigate camera integration probes the home LAN first
-and falls back to the embedded Tailscale network when the local attempt fails,
-then plays one go2rtc HLS/fMP4 camera stream with ExoPlayer over the chosen
-transport. V1 was validated on a physical Android device for remote
-connectivity, stream discovery, live playback, lock/unlock resume and
-network-switch reconnect (see the `docs/PLAN.md` decision log). The project is
-now in release engineering / Play Store readiness.
+Hearthlane is an **open-source Android gateway** for privately accessing the
+services running in your homelab, **without exposing those services to the
+public Internet**.
 
-## What Hearthlane is building toward
+Hearthlane is **self-hosted oriented**, **Android native**, and
+**private-by-design**: your cameras, media servers and home automation stay
+behind your home network, and Hearthlane reaches them over a private overlay
+network you already control. You do not need to publish any port, expose any
+reverse proxy, or hand over accounts to a third party.
 
-- **Frigate cameras** — live view of one camera at a time (V1, done).
-- **Private connectivity everywhere** — embedded Tailscale node; no separate VPN
-  app, no public Frigate port.
-- **Future homelab services** — the architecture is meant to grow toward other
-  self-hosted services such as Immich, Nextcloud, Home Assistant, monitoring
-  dashboards, and similar. These are architectural direction, not committed
-  features.
+The first implemented integration is **remote live access to cameras managed by
+a private [Frigate](https://frigate.video/) installation**. Hearthlane is
+designed so further homelab services can be added behind the same private
+gateway later. Those future integrations are architectural direction, not
+committed features.
 
-## Prerequisites
+---
+
+## Current capabilities
+
+Hearthlane V1 (Android, versionName `1.0.0` / versionCode `1`) ships the
+following end-to-end flow, validated on a physical Android device:
+
+- **Private connectivity** for a single device, using an embedded Tailscale
+  node — the official Tailscale Android application is not required.
+- **Transparent transport** — the local home LAN is preferred when reachable;
+  the embedded Tailscale node is started automatically as a fallback when the
+  phone is outside the home LAN, and stopped again as soon as LAN returns.
+- **Frigate integration** — camera discovery via `/api/config`, go2rtc stream
+  metadata via `/api/go2rtc/streams`, snapshot thumbnails and a single live
+  HLS/fMP4 stream per camera through the Frigate `/api/go2rtc/` proxy.
+- **Family-facing Android UI** built with Jetpack Compose — Home (camera grid),
+  Live View, Diagnostics and Settings screens. Infrastructure terms
+  (`LOCAL`/`TAILSCALE`, hostnames, transport labels) are confined to the
+  administrator-facing Diagnostics screen.
+- **First-run administrator setup** — a single one-time flow enters the Frigate
+  URL, tests the connection and walks the administrator through any required
+  Tailscale enrollment.
+- **Administrator reset path** — Settings can clear the embedded Tailscale
+  identity and re-enroll the device without reinstalling.
+- **Sanitized diagnostics** — the "Copy diagnostics" action produces a
+  plain-text report with sensitive substrings (enrollment URLs, token-shaped
+  strings) redacted before anything reaches the clipboard.
+
+---
+
+## Architecture
+
+Hearthlane is organised as a multi-module Android project plus a small Go
+component, built into the APK through `gomobile bind`:
+
+```text
+Hearthlane (Android, Kotlin, Jetpack Compose)
+  |
+  +-- app/                     Compose UI, navigation, settings, controllers
+  |
+  +-- core/
+  |     +-- connectivity/      Application-oriented connectivity state
+  |     +-- frigate/           Frigate HTTP integration
+  |     |     +-- Camera discovery
+  |     |     +-- Snapshot thumbnails
+  |     |     +-- Live HLS playback metadata
+  |     +-- playback/          Android playback (Media3 / ExoPlayer)
+  |
+  +-- native/
+        +-- tailscale/         Go (tsnet) component and Android bridge
+              +-- Embedded Tailscale node (tsnet)
+              +-- Application-scoped dialer
+              +-- Internal DNS resolver
+```
+
+The proven module boundaries (`app`, `core/*`, `native/*`) are documented in
+[`AGENTS.md`](AGENTS.md) and inherited from the technical validation recorded
+in [`docs/PLAN.md`](docs/PLAN.md).
+
+---
+
+## Privacy model
+
+- Homelab services **do not need to be exposed to the public Internet** —
+  Hearthlane reaches them over your existing tailnet instead.
+- Remote connectivity uses an **embedded Tailscale node** scoped to the app;
+  the official Tailscale Android application is not required for this
+  application to work, and the connection is owned by the app process.
+- The **home LAN is preferred** when reachable; Tailscale is the fallback
+  used only when LAN probe fails. Connectivity is automatically restored to
+  LAN once it returns.
+- Credentials and Tailscale enrollment state **stay on the device** in the
+  app's private storage. No reusable Tailscale auth key, OAuth secret,
+  Frigate administrator password or camera RTSP credential is embedded in the
+  APK or shipped in source control.
+- **App backup is disabled**: `android:allowBackup="false"` together with
+  explicit `fullBackupContent` and `dataExtractionRules` rules keeps the
+  Tailscale state and the app configuration out of cloud backup and device
+  transfer.
+- The Diagnostics "Copy diagnostics" action **sanitizes sensitive substrings**
+  (enrollment URLs, token-shaped runs) before any text reaches the clipboard.
+  Release builds also redact HLS session URLs from logs and exception
+  messages.
+
+These are the privacy properties currently implemented in the repository.
+They are intentional design choices, not absolute guarantees: security
+ultimately depends on the Tailscale tailnet policy applied to the family
+device identity, the configuration of the homelab services, and the physical
+trust placed in the device itself.
+
+---
+
+## Requirements
+
+- An Android phone with **modern Android** (V1 builds against `minSdk = 26`).
+- A **homelab Frigate installation** reachable from the LAN during setup and
+  reachable through the existing tailnet when the phone is away. The Frigate
+  server must speak the public Frigate HTTP API and expose go2rtc under the
+  documented `/api/go2rtc/` prefix.
+- An **existing Tailscale tailnet** that the homelab belongs to. No Tailscale
+  application needs to be installed on the phone; the embedded node enrolls
+  interactively the first time it is required.
+- A **real device** for the final end-to-end validation. The transparent
+  connectivity and the live HLS path depend on application-scoped networking
+  and are not equivalent in an emulator.
+
+---
+
+## Building
+
+Prerequisites:
 
 - JDK 21
-- Android SDK with platform `android-36`, build tools `36.0.0`, and NDK
+- Android SDK with platform `android-36`, build tools `36.0.0` and NDK
   `27.2.12479018`
-- `ANDROID_HOME` set (for example `/opt/android-sdk`)
+- `ANDROID_HOME` set
 - Go toolchain 1.26.5+ (auto-downloaded by the `go.mod` `toolchain` directive)
 - `gomobile` from `golang.org/x/mobile/cmd/gomobile` on `PATH`
 
-The Gradle wrapper is committed, so a local Gradle installation is not required.
-
-## Commands
-
-Development and validation:
+Standard development gates:
 
 ```text
 ./gradlew assembleDebug
@@ -56,31 +157,26 @@ Development and validation:
 ./gradlew lint
 ```
 
-Play Store release AAB (requires signing credentials; see `docs/RELEASE.md`):
+The Gradle wrapper is committed, so a local Gradle installation is not
+required. The `assembleDebug` step runs `gomobile bind` automatically and
+produces the AAR wrapped into the APK.
+
+The patched Go toolchain at `go-patched/` is used automatically when present
+(the netlink fallback required for `tsnet.Start()` on Android 11+). Without
+it the build still succeeds but the embedded node cannot open sockets on a
+physical Android 11+ device. See [`docs/TOOLCHAIN_PATCH.md`](docs/TOOLCHAIN_PATCH.md).
+
+Play Store AAB build and signing procedure:
 
 ```text
 ./gradlew :app:bundleRelease
-```
-
-Local release APK (requires signing credentials; see `docs/RELEASE.md`):
-
-```text
 ./gradlew :app:assembleRelease
 ```
 
-`assembleDebug` builds the embedded Tailscale AAR first (Go + gomobile) and then
-the APK. The AAR can also be built standalone:
+Both require external signing credentials. The procedure and the placeholder
+upload keystore name are documented in [`docs/RELEASE.md`](docs/RELEASE.md).
 
-```text
-./native/tailscale/go/build-android.sh
-```
-
-This script sets up the Go caches under `<repo>/.go/`, requires `ANDROID_HOME`,
-and writes the AAR to `native/tailscale/build/tsembed.aar`. The AAR contains the
-gomobile-generated `com.homelab.poc.tsembed.Tsembed` binding (start/stop/status)
-and `libgojni.so` for `arm64-v8a` and `x86_64`.
-
-Go checks for the native module:
+Go-side checks (when working in the native module):
 
 ```text
 cd native/tailscale/go
@@ -88,102 +184,83 @@ go test ./...
 go vet ./...
 ```
 
-### netlinkrib fix (Android 11+, applied by default when available)
+---
 
-`tsnet.Start()` needs the CL 507415 stdlib fallback on Android 11+ (the Go
-stdlib netlink path is denied by SELinux; see `docs/TOOLCHAIN_PATCH.md`). The
-repo's isolated patched Go toolchain at `go-patched/` is used automatically when
-present, so the standard `./gradlew assembleDebug` produces a device-working
-APK. To point at a different patched toolchain:
+## Screenshots
 
-```text
-./gradlew -PgoToolchainRoot=/path/to/toolchain :app:assembleDebug
-```
+<!-- Screenshots will be added before the first public release. -->
 
-Without a patched toolchain the build falls back to the standard Go toolchain:
-compilation succeeds, but `tsnet.Start()` fails on a physical Android 11+
-device with `netlinkrib: permission denied`.
+Real screenshots are captured from a physical device running the current
+release build. They will be added under `docs/assets/screenshots/` once the
+assets are ready.
 
-The debug APK is produced at `app/build/outputs/apk/debug/app-debug.apk`. The
-release APK is produced at `app/build/outputs/apk/release/app-release.apk` and
-the Play Store AAB at `app/build/outputs/bundle/release/app-release.aab`.
+---
 
-To install the debug build on a connected physical device:
+## Current status
 
-```text
-./gradlew installDebug
-```
+- **Version:** V1, `versionName 1.0.0`, `versionCode 1`.
+- **Application ID:** `com.homelab.hearthlane` (Android namespace `com.homelab.poc`
+  kept internally to avoid a large source refactor; not user-visible).
+- **Validated on a physical Android device** for: home LAN and remote
+  playback; stream discovery; lock/unlock resume; Tailscale enrollment;
+  network-switch reconnect; transparent LOCAL↔TAILSCALE switch.
+- **Not yet published on the Play Store.** Play Store build and signing are
+  prepared (see [`docs/RELEASE.md`](docs/RELEASE.md)), but the first listing
+  has not been created.
 
-## On-device test (V1)
+---
 
-1. Install and launch the app.
-2. Complete the one-time administrator setup if this is the first install:
-   enter the Frigate URL and test the connection.
-3. The app probes Frigate over the local network first:
-   - **Home Wi-Fi:** the app connects locally; Tailscale stays stopped.
-   - **Mobile data / non-home Wi-Fi:** the local probe fails within ~2 s, the
-     embedded Tailscale node starts, and the app connects through Tailscale.
-4. If the embedded node has never been enrolled, the app shows a
-   `login.tailscale.com/...` URL. Open it in a browser signed in to the tailnet
-   admin account, then tap **Retry**.
+## Roadmap
 
-The Frigate URL is editable in the app before connecting and defaults to the
-build-time value (also overridable at build time):
+The architecture is designed to grow the gateway beyond the first integration.
+The list below is **directional, not a commitment**:
 
-```text
-./gradlew -Pfrigate.baseUrl=http://site.omni.corp :app:assembleDebug
-```
+- Bring additional homelab services behind the same private gateway (for
+  example media, photos, files, home automation, monitoring).
+- Continue to keep the embedded Tailscale node application-scoped; a device-wide
+  VPN is not part of the architecture.
+- Continue to prefer Frigate/go2rtc as the camera gateway rather than
+  reaching cameras directly.
+- Each new service integrates through a small focused module boundary
+  (`core/<service>/`) and the same connectivity / playbook patterns used by
+  the Frigate integration.
 
-The same URL is used for both paths. On the Tailscale path the hostname
-resolves through the tailnet DNS (homelab DNS configured in the Tailscale admin
-console / MagicDNS). On the home-LAN path it resolves through the network the
-phone is on; if that DNS does not answer, the app transparently falls back to
-the Tailscale path.
+Past V1 work and the open-source future versions are tracked in the GitHub
+milestones and in [`docs/V1.md`](docs/V1.md).
 
-No auth key, OAuth secret or other long-lived credential is embedded in the APK.
+---
 
-## Regenerating the Gradle wrapper
+## Documentation
 
-The wrapper was generated from the Gradle 8.14.3 distribution. To regenerate it
-(requires a local Gradle installation):
+The repository contains the full technical history and the operational
+documentation:
 
-```text
-gradle wrapper --gradle-version 8.14.3 --distribution-type bin
-```
+- [**AGENTS.md**](AGENTS.md) — engineering guidelines, module boundaries,
+  architecture principles and the agent workflow.
+- [**docs/V1.md**](docs/V1.md) — the V1 product and implementation plan that
+  produced the current codebase.
+- [**docs/PLAN.md**](docs/PLAN.md) — POC and V1 technical history, including
+  the Decision Log of experiments, trade-offs and known limitations.
+- [**docs/RELEASE.md**](docs/RELEASE.md) — build, signing and Play Store
+  readiness checklist, store listing inventory, rollback procedure.
+- [**docs/REQUIREMENTS.md**](docs/REQUIREMENTS.md) — POC success criteria and
+  acceptance test.
+- [**docs/TOOLCHAIN_PATCH.md**](docs/TOOLCHAIN_PATCH.md) — the patched Go
+  toolchain that ships `tsnet` on Android 11+.
 
-## Module layout
+Branding assets used in the README live under [`docs/assets/branding/`](docs/assets/branding/).
 
-```text
-app/                      Android application (Kotlin + Jetpack Compose)
-  ui/                     Compose screens
-  navigation/             (future) screen navigation
+---
 
-core/connectivity/        Application-oriented connectivity state
-core/frigate/             Frigate HTTP integration
-core/playback/            Android playback implementation
-native/tailscale/         Go/Tailscale integration and Android bridge
-  go/                     Go module (tsnet wrapper + gomobile build script)
-```
+## License
 
-`app` depends on the three `core` modules and on `native/tailscale`, which hosts
-the Phase 1 Go bridge.
+Hearthlane is licensed under the [GNU General Public License v3.0 (GPL-3.0-only)](LICENSE).
 
-## Version selection
+This means that any distributed or derivative work must also be licensed
+under GPL-3.0-only. The full license text is in the [LICENSE](LICENSE) file
+at the root of this repository.
 
-The following versions were chosen at bootstrap time because they are the
-current stable, mutually compatible options for the installed SDK platform
-(`android-36`) and JDK 21:
+Third-party software notices for the components distributed with the
+application are in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
 
-- Gradle wrapper 8.14.3
-- Android Gradle Plugin 8.13.2
-- Kotlin 2.2.21
-- Jetpack Compose BOM 2026.06.01
-- `compileSdk` / `targetSdk` 36, `minSdk` 26
-
-## Validation status
-
-V1 was validated on a physical Android device for LOCAL and TAILSCALE
-connectivity, live playback, network-switch recovery, lock/unlock resume, and
-Tailscale enrollment. The standard development gates are `test`, `lint`,
-`:app:assembleDebug`, and `:app:bundleRelease` (the latter requires signing
-credentials).
+---
