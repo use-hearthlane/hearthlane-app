@@ -1,6 +1,7 @@
 package com.homelab.poc.core.frigate
 
 import com.homelab.poc.core.connectivity.HttpBytesResult
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
@@ -125,6 +126,42 @@ class FrigateConnectionManagerTest {
         assertEquals("nothing must be stopped when the fallback itself failed", 0, gateway.stopCalls)
     }
 
+    @Test
+    fun `CancellationException from local probe propagates without mapping to Failure`() = runTest {
+        val manager = FrigateConnectionManager(
+            config = config,
+            localTransport = CancellationTransport(TransportKind.LOCAL),
+            tailscaleTransport = StubTransport(TransportKind.TAILSCALE, FrigateTransportResult.Success("0.15.2")),
+            tailscaleGateway = StubGateway(),
+        )
+
+        var thrown = false
+        try {
+            manager.connect()
+        } catch (e: CancellationException) {
+            thrown = true
+        }
+        assertTrue("CancellationException must propagate, not be caught as Failure", thrown)
+    }
+
+    @Test
+    fun `CancellationException from tailscale probe propagates without mapping to Failure`() = runTest {
+        val manager = FrigateConnectionManager(
+            config = config,
+            localTransport = StubTransport(TransportKind.LOCAL, FrigateTransportResult.Failure("unreachable")),
+            tailscaleTransport = CancellationTransport(TransportKind.TAILSCALE),
+            tailscaleGateway = StubGateway(),
+        )
+
+        var thrown = false
+        try {
+            manager.connect()
+        } catch (e: CancellationException) {
+            thrown = true
+        }
+        assertTrue("CancellationException from tailscale probe must propagate", thrown)
+    }
+
     /**
      * Builds a manager whose Tailscale transport drives [gateway], so start/stop
      * lifecycle calls are recorded exactly as the strategy performs them.
@@ -191,6 +228,13 @@ class FrigateConnectionManagerTest {
         override suspend fun probe(): FrigateTransportResult {
             delay(Long.MAX_VALUE)
             error("HangingTransport should have been cancelled by the local timeout")
+        }
+    }
+
+    /** Transport that always throws CancellationException on probe. */
+    private class CancellationTransport(override val kind: TransportKind) : FrigateTransport {
+        override suspend fun probe(): FrigateTransportResult {
+            throw CancellationException("test cancellation")
         }
     }
 }

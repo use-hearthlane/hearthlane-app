@@ -11,14 +11,13 @@
     <string name="copy_error_button">Copy error</string>
     <string name="retry_button">Retry</string>
 
-    <string name="live_view_transport">Transport: %1$s</string>
     <string name="live_view_discovering">Connecting to camera…</string>
     <string name="live_view_camera_unavailable">Camera unavailable</string>
+    <string name="live_view_connection_lost">Connection lost</string>
     <string name="live_view_starting">Starting live playback…</string>
     <string name="live_view_playing">Playing</string>
     <string name="live_view_play">Play</string>
     <string name="live_view_stop">Stop</string>
-    <string name="live_view_metrics">Diagnostics: first frame %1$s, bytes %2$d, recoveries %3$d</string>
 
     <string name="setup_title">Initial setup</string>
     <string name="settings_title">Server settings</string>

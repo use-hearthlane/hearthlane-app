@@ -28,6 +28,8 @@ class TailscaleTransport(
             val version = probe.probe(config.tailscaleBaseUrl, config.tailscaleProbeTimeoutMs)
             Log.i(TAG, "Frigate probe via Tailscale succeeded (version=$version)")
             FrigateTransportResult.Success(version)
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
         } catch (e: TailscaleAuthRequired) {
             Log.w(TAG, "Tailscale requires authentication (enrollment pending)")
             FrigateTransportResult.Failure(

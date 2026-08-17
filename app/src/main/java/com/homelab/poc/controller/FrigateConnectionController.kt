@@ -136,27 +136,30 @@ class FrigateConnectionController internal constructor(
         val baseUrl = settings.baseUrl.value
         Log.i(TAG, "connect requested (baseUrl=$baseUrl, restartPlayback=$restartPlayback)")
         scope.launch {
-            val result = withContext(ioDispatcher) { runConnect(baseUrl) }
-            if (result is FrigateConnection.Connected) {
-                val previous = _lastProbedTransport.value
-                val switched = previous != null && previous != result.transport
-                if (switched) {
-                    _transportSwitchCount.update { it + 1 }
-                    Log.i(
-                        TAG,
-                        "transport switched #${_transportSwitchCount.value}: $previous -> ${result.transport}",
-                    )
-                } else if (previous == null) {
-                    Log.i(TAG, "transport selected: ${result.transport}")
+            try {
+                val result = withContext(ioDispatcher) { runConnect(baseUrl) }
+                if (result is FrigateConnection.Connected) {
+                    val previous = _lastProbedTransport.value
+                    val switched = previous != null && previous != result.transport
+                    if (switched) {
+                        _transportSwitchCount.update { it + 1 }
+                        Log.i(
+                            TAG,
+                            "transport switched #${_transportSwitchCount.value}: $previous -> ${result.transport}",
+                        )
+                    } else if (previous == null) {
+                        Log.i(TAG, "transport selected: ${result.transport}")
+                    }
+                    _lastProbedTransport.value = result.transport
+                    _lastError.value = null
+                } else {
+                    (result as? FrigateConnection.Failed)?.let { _lastError.value = it.error }
                 }
-                _lastProbedTransport.value = result.transport
-                _lastError.value = null
-            } else {
-                (result as? FrigateConnection.Failed)?.let { _lastError.value = it.error }
+                _connection.value = result
+                if (restartPlayback) _connectAttempt.update { it + 1 } else _networkTick.update { it + 1 }
+            } finally {
+                _connecting.value = false
             }
-            _connection.value = result
-            _connecting.value = false
-            if (restartPlayback) _connectAttempt.update { it + 1 } else _networkTick.update { it + 1 }
         }
     }
 

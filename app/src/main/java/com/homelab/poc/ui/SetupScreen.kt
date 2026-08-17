@@ -35,6 +35,7 @@ import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.unit.dp
 import com.homelab.poc.R
 import com.homelab.poc.controller.FrigateConnectionController
+import com.homelab.poc.diagnostics.DiagnosticsReport
 import com.homelab.poc.settings.AppSettings
 import com.homelab.poc.setup.SetupFlow
 import kotlinx.coroutines.launch
@@ -168,7 +169,7 @@ fun SetupScreen(
                             style = MaterialTheme.typography.titleLarge,
                         )
                         val clipboard = LocalClipboardManager.current
-                        TextButton(onClick = { clipboard.setText(AnnotatedString(current.message)) }) {
+                        TextButton(onClick = { clipboard.setText(AnnotatedString(DiagnosticsReport.sanitize(current.message))) }) {
                             Text(stringResource(R.string.copy_error_button))
                         }
                     }

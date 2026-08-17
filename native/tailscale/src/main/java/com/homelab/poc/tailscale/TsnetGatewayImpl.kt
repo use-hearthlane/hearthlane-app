@@ -7,6 +7,8 @@ import com.homelab.poc.core.frigate.TailscaleAuthRequired
 import com.homelab.poc.core.frigate.TsnetGateway
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.io.IOException
@@ -22,57 +24,52 @@ class TsnetGatewayImpl(
     private val connectTimeoutMs: Long = DEFAULT_CONNECT_TIMEOUT_MS,
 ) : TsnetGateway {
 
-    override suspend fun ensureRunning() {
-        var status = TailscaleBridge.status()
-        if (status.state == ConnectivityState.CONNECTED) {
-            return
-        }
-        if (status.state == ConnectivityState.STOPPED ||
-            status.state == ConnectivityState.DISCONNECTED ||
-            status.state == ConnectivityState.FAILED
-        ) {
-            Log.i(TAG, "starting embedded Tailscale node")
-            TailscaleBridge.start(hostname, authKey = "", stateDir)
-        }
+    /** Serializes [ensureRunning] so concurrent callers cannot call start() simultaneously. */
+    private val connectMutex = Mutex()
 
-        val deadline = SystemClock.elapsedRealtime() + connectTimeoutMs
-        var sawAuth = false
-        while (SystemClock.elapsedRealtime() < deadline) {
-            status = TailscaleBridge.status()
-            when (status.state) {
-                ConnectivityState.CONNECTED -> {
-                    Log.i(TAG, "Tailscale connected")
-                    return
-                }
-                ConnectivityState.AUTHENTICATING -> {
-                    sawAuth = true
-                    // The enrollment URL is published asynchronously by the
-                    // node's interactive login flow: the first AUTHENTICATING
-                    // poll can see the state before the URL is available. Keep
-                    // polling so the UI can show the login link instead of a
-                    // bare error with nothing to act on.
-                    status.authUrl?.takeIf { it.isNotBlank() }?.let { url ->
-                        // The enrollment URL is a transient credential: it is
-                        // surfaced to the UI but never written to logcat.
-                        Log.i(TAG, "Tailscale requires authentication (enrollment pending)")
-                        throw TailscaleAuthRequired(url)
+    override suspend fun ensureRunning() {
+        connectMutex.withLock {
+            var status = TailscaleBridge.status()
+            if (status.state == ConnectivityState.CONNECTED) {
+                return
+            }
+            if (status.state == ConnectivityState.STOPPED ||
+                status.state == ConnectivityState.DISCONNECTED ||
+                status.state == ConnectivityState.FAILED
+            ) {
+                Log.i(TAG, "starting embedded Tailscale node")
+                TailscaleBridge.start(hostname, authKey = "", stateDir)
+            }
+
+            val deadline = SystemClock.elapsedRealtime() + connectTimeoutMs
+            var sawAuth = false
+            while (SystemClock.elapsedRealtime() < deadline) {
+                status = TailscaleBridge.status()
+                when (status.state) {
+                    ConnectivityState.CONNECTED -> {
+                        Log.i(TAG, "Tailscale connected")
+                        return
+                    }
+                    ConnectivityState.AUTHENTICATING -> {
+                        sawAuth = true
+                        status.authUrl?.takeIf { it.isNotBlank() }?.let { url ->
+                            Log.i(TAG, "Tailscale requires authentication (enrollment pending)")
+                            throw TailscaleAuthRequired(url)
+                        }
+                    }
+                    ConnectivityState.FAILED ->
+                        throw IOException("tailscale failed: ${status.error ?: "unknown error"}")
+                    else -> {
+                        // CONNECTING / DISCONNECTED: keep waiting.
                     }
                 }
-                ConnectivityState.FAILED ->
-                    throw IOException("tailscale failed: ${status.error ?: "unknown error"}")
-                else -> {
-                    // CONNECTING / DISCONNECTED: keep waiting.
-                }
+                delay(POLL_INTERVAL_MS)
             }
-            delay(POLL_INTERVAL_MS)
+            if (sawAuth) {
+                throw TailscaleAuthRequired(null)
+            }
+            throw IOException("tailscale did not reach Running within ${connectTimeoutMs}ms")
         }
-        if (sawAuth) {
-            // The node needs enrollment but never exposed a URL before the
-            // deadline. Fail as auth-required so the UI explains what to do;
-            // tsnet also prints the URL to logcat.
-            throw TailscaleAuthRequired(null)
-        }
-        throw IOException("tailscale did not reach Running within ${connectTimeoutMs}ms")
     }
 
     override suspend fun stopIfRunning() {

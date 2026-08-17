@@ -45,15 +45,14 @@ class CameraDiscoveryController(
     private val _refreshKey = MutableStateFlow(0)
     val refreshKey: StateFlow<Int> = _refreshKey.asStateFlow()
 
-    private var observing = false
+    private var collectJob: Job? = null
     private var discoveryJob: Job? = null
     private var discoveredTransport: TransportKind? = null
 
     /** Watches the shared connection and triggers discovery on transport changes. */
     fun start() {
-        if (observing) return
-        observing = true
-        scope.launch {
+        if (collectJob != null) return
+        collectJob = scope.launch {
             connection.collect { conn ->
                 val transport = (conn as? FrigateConnection.Connected)?.transport
                 if (transport != null && transport != discoveredTransport) {
@@ -66,7 +65,8 @@ class CameraDiscoveryController(
 
     /** Stops the connection observer and cancels any in-flight discovery. */
     fun stop() {
-        observing = false
+        collectJob?.cancel()
+        collectJob = null
         discoveryJob?.cancel()
     }
 

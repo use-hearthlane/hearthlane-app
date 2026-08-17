@@ -1832,6 +1832,84 @@ netlinkrib blocker and applies regardless of the chosen fix.
 
 **Excluded:** Nextcloud, Immich, events, notifications, SSO, and production provisioning.
 
+### 2026-08-08 — V1.6 Audit adjustments implemented
+
+**Context:** Post-V1.5 audit identified seven corrective items across UI polish,
+coroutine safety, concurrency, diagnostics sanitization, and user-facing error
+states. All items are non-breaking, internal hardening; no new features.
+
+**Decisions:**
+
+1. **Transport label removed** — The `Transport: LOCAL/TAILSCALE` text and
+   connection metrics diagnostics were removed from the live camera screen. The
+   family-facing UI must not expose low-level connectivity details.
+
+2. **CancellationException propagation** — All `catch (e: Exception)` blocks in
+   `LocalTransport.probe()` and `TailscaleTransport.probe()` now re-throw
+   `CancellationException` before handling other exceptions, preventing silent
+   cancellation swallowing.
+
+3. **CollectJob lifecycle** — `CameraDiscoveryController` now tracks the
+   collector `Job` (`collectJob`) instead of a bare `observing` boolean. A
+   duplicate `start()` while already active is a no-op. `stop()` cancels the
+   `Job` directly.
+
+4. **TsnetGatewayImpl Mutex serialization** — `ensureRunning()` wraps the full
+   start/connect logic in `connectMutex.withLock { … }` to eliminate the
+   previously observed concurrent-start race.
+
+5. **Diagnostics sanitization** — `SetupScreen` now passes error messages through
+   `DiagnosticsReport.sanitize()` before displaying them on screen, ensuring
+   auth keys and other secrets never appear in the UI.
+
+6. **FrigateConnectionController connecting flag** — `connect()` wraps its body
+   in `try/finally { _connecting.value = false }` so the flag is cleared on
+   both success and failure, eliminating a stuck "Connecting…" state on
+   cancellation.
+
+7. **Local recovery exhaustion UI** — When `LiveView`'s auto-recovery budget is
+   exhausted (MAX_AUTO_RECOVERY = 2), the player shows "Connection lost" with a
+   "Try again" button instead of remaining black with "Playing" text. The
+   exhaustion state is cleared on retry and on successful re-establishment.
+
+**Validation:** Core module tests pass. Go gate passes. Full app gate blocked by
+gomobile absence. No regressions observed.
+
+### 2026-08-17 — V1.6 regression fixes: compose test migration and duplicate UI text
+
+**Context:** V1.6 hardening included seven audit items (transport label removal,
+CancellationException propagation, CollectJob lifecycle, mutex serialization,
+diagnostics sanitization, connecting-flag fix, local recovery exhaustion UI).
+Full-app gates passed (`test`, `lint`, `assembleDebug`; Go `test`/`vet`), but
+the recovery-exhausted Robolectric/Compose test was red from the start and
+needed investigation.
+
+**Decisions:**
+
+1. **Migrate `LiveViewTest` from deprecated `createComposeRule()` (v1) to
+   `androidx.compose.ui.test.junit4.v2.createComposeRule()`.** The deprecated
+   v1 API uses `UnconfinedTestDispatcher` and does NOT link `mainClock`'s
+   `TestCoroutineScheduler` to `Dispatchers.Main`. When the test calls
+   `Dispatchers.setMain(StandardTestDispatcher())`, `rememberCoroutineScope()`
+   inside the composable dispatches `delay()` calls onto a scheduler that is
+   invisible to `composeTestRule.mainClock.advanceTimeBy()`. The v2 API uses
+   `StandardTestDispatcher` for both the composition dispatcher and
+   `Dispatchers.Main`, so `mainClock` advances the same scheduler that
+   `rememberCoroutineScope()` uses. All `Dispatchers.setMain()`/`resetMain()`
+   manual boilerplate was removed.
+
+2. **Fix duplicate "Connection lost" text.** When `recoveryExhausted` is true,
+   `LiveView` composed "Connection lost" in two places: the main content area
+   (a large `bodyLarge` text with a "Try again" button) and the bottom
+   `playbackLabel` (a `bodyMedium` status line). `assertIsDisplayed()` correctly
+   rejects two nodes with identical text. Fix: hide the bottom `playbackLabel`
+   when `recoveryExhausted` is true, since the primary content already surfaces
+   the same message with a call to action.
+
+**Validation:** Full `./gradlew test lint :app:assembleDebug` green (5/5
+`LiveViewTest` tests pass including the previously-failing recovery-exhausted
+test). Go `test`/`vet` green. No regressions in existing tests.
+
 ### Android Tailscale embedding approach
 
 **Status:** Build path validated (`gomobile bind` + `tsnet` AAR); device test pending.

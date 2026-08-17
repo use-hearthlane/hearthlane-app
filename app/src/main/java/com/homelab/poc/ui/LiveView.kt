@@ -3,9 +3,7 @@ package com.homelab.poc.ui
 import android.annotation.SuppressLint
 import android.os.SystemClock
 import android.util.Log
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -37,6 +35,7 @@ import androidx.media3.common.util.UnstableApi
 import androidx.media3.ui.PlayerView
 import com.homelab.poc.R
 import com.homelab.poc.controller.PlaybackSnapshotStore
+import com.homelab.poc.core.connectivity.HttpBytesGetter
 import com.homelab.poc.core.frigate.Go2RtcStreams
 import com.homelab.poc.core.frigate.TransportKind
 import com.homelab.poc.core.frigate.TsnetGateway
@@ -51,18 +50,17 @@ import kotlinx.coroutines.launch
 private const val TAG = "PocCamera"
 
 /**
- * V1.4 live view for a single selected camera. Receives the [cameraId] chosen
- * on Home and plays the go2rtc stream whose name equals that id (the proven
- * camera.id == stream name relation), never a "first stream". Every media
- * request goes through
+ * Family-facing live view for a single selected camera. Receives the [cameraId]
+ * chosen on Home and plays the go2rtc stream whose name equals that id (the
+ * proven camera.id == stream name relation), never a "first stream". Every
+ * media request goes through
  * [com.homelab.poc.core.connectivity.HttpBytesGetter] selected by [transport],
  * so the Tailscale path can never touch the Android network.
  *
- * Defensive states: a camera whose stream is absent from `/api/go2rtc/streams`
- * (or was removed after discovery) surfaces a "Camera unavailable" state with a
- * Try again action instead of a dead player; a failure to start the go2rtc HLS
- * session surfaces an explicit error. Playback/recovery/lifecycle/metrics
- * behavior is unchanged from the validated POC.
+ * V1.6: all technical details (transport label, metrics, error codes) are
+ * removed from the family-facing UI. Only product states are shown. When the
+ * LOCAL recovery budget is exhausted, a simple "Connection lost" /
+ * "Try again" state is surfaced.
  */
 @SuppressLint("UnsafeOptInUsageError")
 @OptIn(UnstableApi::class)
@@ -76,10 +74,11 @@ internal fun LiveView(
     networkTick: Int,
     modifier: Modifier = Modifier,
     playbackSnapshotStore: PlaybackSnapshotStore? = null,
+    testGetter: HttpBytesGetter? = null,
 ) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
-    val getter = remember(transport, gateway) { bytesGetterFor(transport, gateway) }
+    val getter = testGetter ?: remember(transport, gateway) { bytesGetterFor(transport, gateway) }
     // Keyed by transport: the getter is transport-specific, so a network-driven
     // transport switch must rebuild the player on the new getter instead of
     // continuing on the dead one.
@@ -94,40 +93,23 @@ internal fun LiveView(
     var playbackStatus by remember { mutableStateOf<PlaybackStatus>(PlaybackStatus.Idle) }
     val metrics by player.metrics.collectAsState()
     var resumeTick by remember { mutableStateOf(0) }
-    // True once the selected camera's stream was verified to exist in go2rtc.
-    // Recovery (a dead go2rtc session) can then reuse the fixed stream name
-    // (== cameraId): only a fresh session is required, the name does not
-    // change. Invalidated on any failure so a removed stream self-heals: the
-    // next attempt re-lists and surfaces "Camera unavailable".
     var streamResolved by remember { mutableStateOf(false) }
-    // How many times the auto-recovery re-established a session for this view;
-    // shown next to the error count so on-device tests can tell recoveries
-    // (handled) apart from errors that surfaced without a retry.
     var recoveryCount by remember { mutableStateOf(0) }
-    // Bounds automatic session recovery so a truly dead stream cannot loop
-    // forever. A discovery is never silently dropped: the latest request
-    // cancels and supersedes any in-flight one.
     var autoRecovery by remember { mutableStateOf(0) }
-    // Timestamp of the last PLAYING transition; used to only renew the
-    // recovery budget after the session was stable for a while.
     var playingSince by remember { mutableStateOf<Long?>(null) }
+    // True when LOCAL recovery budget is exhausted and the player is dead.
+    // Shows "Connection lost" / "Try again" instead of "Playing" on black.
+    // Cleared by manual retry or successful re-establishment.
+    var recoveryExhausted by remember { mutableStateOf(false) }
 
     DisposableEffect(player) {
         onDispose {
             Log.i(TAG, "player released (live view left or transport switched)")
-            // Record the finished session into the app-lifetime diagnostics
-            // accumulator before the player dies with its session-scoped
-            // metrics. The store is null in tests and in compositions that do
-            // not own one.
             playbackSnapshotStore?.record(player.state.value, player.metrics.value, recoveryCount)
             player.release()
         }
     }
 
-    // Release the media source while the screen is off so no bytes flow in
-    // the background, and re-establish playback on resume. A fresh go2rtc
-    // session is always created on resume because a stale session dies on its
-    // ~5s keepalive once nothing consumes it.
     DisposableEffect(lifecycleOwner, player) {
         val observer = LifecycleEventObserver { _, event ->
             when (event) {
@@ -141,58 +123,36 @@ internal fun LiveView(
     }
 
     var discoveryJob: Job? = null
-    // Pending automatic re-discovery retry scheduled after a failed discovery;
-    // runs once after a short backoff and is superseded by the next discovery.
     var discoveryRetryJob: Job? = null
     fun discoverAndPlay() {
-        // The latest discovery wins: cancel any in-flight one instead of
-        // silently skipping, so a lifecycle/network resume is never swallowed
-        // by a stale background attempt (which left a black player on unlock).
         discoveryJob?.cancel()
         discoveryRetryJob?.cancel()
         discoveryJob = scope.launch {
             try {
                 unavailable = false
                 val streams = Go2RtcStreams(getter)
-                // Recovery (a dead go2rtc session) can reuse the selected
-                // camera's stream: the name is fixed to the camera id, only a
-                // fresh session is required. Otherwise the stream is resolved
-                // by exact camera id match, never by stream order.
                 val name = if (streamResolved) {
                     cameraId
                 } else {
                     streams.streamNameForCamera(baseUrl, cameraId, STREAMS_TIMEOUT_MS)
                 }
                 if (name == null) {
-                    // The selected camera has no go2rtc stream: not an
-                    // infrastructure failure, a product state.
                     unavailable = true
                 } else {
-                    // Creates the go2rtc HLS session (which starts the cold camera
-                    // producer) and returns its media playlist URL, so ExoPlayer
-                    // plays against a session that is already consuming. A fresh
-                    // master request inside ExoPlayer would race the producer
-                    // start; go2rtc answers that with an empty 200 when the
-                    // consumer cannot attach.
                     val url = streams.resolveMediaPlaylistUrl(baseUrl, name, STREAMS_TIMEOUT_MS)
                     Log.i(TAG, "live stream resolved: camera=$cameraId stream=$name -> $url via $transport")
                     streamResolved = true
                     streamUrl = url
+                    recoveryExhausted = false
                     player.play(url)
                 }
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
             } catch (e: Exception) {
-                // Invalidate the resolved flag so a stale one (Frigate restart,
-                // stream removed) is not reused forever: the next attempt
-                // re-lists the streams. The retry is automatic and invisible.
                 streamResolved = false
                 Log.e(TAG, "stream discovery failed", e)
-                // Schedule one automatic re-discovery after a short backoff,
-                // following the same budget as playback recovery: unbounded over
-                // TAILSCALE (transient tunnel hiccups) and bounded over LOCAL.
-                val stable = playingSince?.let { SystemClock.elapsedRealtime() - it } ?: Long.MAX_VALUE
-                if (stable > STABLE_PLAY_MS) autoRecovery = 0
+                val stable = playingSince?.let { SystemClock.elapsedRealtime() - it }
+                if (stable != null && stable > STABLE_PLAY_MS) autoRecovery = 0
                 val canRecover = transport == TransportKind.TAILSCALE || autoRecovery < MAX_AUTO_RECOVERY
                 if (canRecover) {
                     val attempt = autoRecovery + 1
@@ -208,18 +168,13 @@ internal fun LiveView(
                         delay(DISCOVERY_RETRY_DELAY_MS)
                         discoverAndPlay()
                     }
+                } else {
+                    recoveryExhausted = true
                 }
             }
         }
     }
 
-    // Re-establishes playback when something that invalidates the session
-    // changes: transport/gateway (network path), resumeTick (screen unlock) or
-    // connectAttempt (explicit reconnect). go2rtc drops an HLS session on its
-    // ~5s keepalive, so a resume cannot trust the stale media playlist URL and
-    // always needs a fresh session. networkTick only fires after a network
-    // re-probe, so a healthy session is left alone (it churns on cellular
-    // handovers); only a dead one is recovered.
     var lastTransport by remember { mutableStateOf<TransportKind?>(null) }
     var lastResumeTick by remember { mutableStateOf(0) }
     var lastConnectAttempt by remember { mutableStateOf(0) }
@@ -233,6 +188,7 @@ internal fun LiveView(
         val dead = playbackStatus is PlaybackStatus.Error ||
             player.player.playbackState == Player.STATE_IDLE
         if (transportChanged || resumeChanged || connectChanged || dead) {
+            recoveryExhausted = false
             discoverAndPlay()
         }
     }
@@ -243,19 +199,18 @@ internal fun LiveView(
 
     // Auto-recovery for mid-playback failures. The budget renews only after a
     // session played stably. Over TAILSCALE every error triggers a fresh-session
-    // recovery with no budget: the errors observed there are transient VPN-path
-    // hiccups, and a dead stream must not leave a black screen (each recovery
-    // creates a new go2rtc session). LOCAL stays bounded because a genuine
-    // failure there is not expected. Discovery failures are retried separately
-    // by discoverAndPlay's own catch block with a short backoff. No error is
-    // ever surfaced on screen; recovery is invisible.
+    // recovery with no budget. LOCAL stays bounded because a genuine failure
+    // there is not expected.
     LaunchedEffect(playbackStatus, streamUrl, transport) {
         when (val status = playbackStatus) {
-            is PlaybackStatus.Playing -> playingSince = SystemClock.elapsedRealtime()
+            is PlaybackStatus.Playing -> {
+                playingSince = SystemClock.elapsedRealtime()
+                recoveryExhausted = false
+            }
             is PlaybackStatus.Error ->
                 if (streamUrl != null) {
-                    val stable = playingSince?.let { SystemClock.elapsedRealtime() - it } ?: Long.MAX_VALUE
-                    if (stable > STABLE_PLAY_MS) autoRecovery = 0
+                    val stable = playingSince?.let { SystemClock.elapsedRealtime() - it }
+                    if (stable != null && stable > STABLE_PLAY_MS) autoRecovery = 0
                     val canRecover = transport == TransportKind.TAILSCALE ||
                         autoRecovery < MAX_AUTO_RECOVERY
                     if (canRecover) {
@@ -269,6 +224,8 @@ internal fun LiveView(
                                 "(${if (transport == TransportKind.TAILSCALE) "unbounded TAILSCALE recovery" else "attempt $attempt/$MAX_AUTO_RECOVERY"})",
                         )
                         discoverAndPlay()
+                    } else {
+                        recoveryExhausted = true
                     }
                 }
             else -> Unit
@@ -276,28 +233,32 @@ internal fun LiveView(
     }
 
     Column(modifier = modifier.fillMaxWidth()) {
-        Text(
-            text = stringResource(
-                R.string.live_view_transport,
-                if (transport == TransportKind.LOCAL) {
-                    stringResource(R.string.transport_local)
-                } else {
-                    stringResource(R.string.transport_tailscale)
-                },
-            ),
-            style = MaterialTheme.typography.bodyMedium,
-        )
-        Spacer(Modifier.height(8.dp))
-
         val url = streamUrl
         when {
+            // Recovery exhausted: show simple product state, not "Playing" on black.
+            recoveryExhausted && !unavailable -> {
+                Spacer(Modifier.height(32.dp))
+                Text(
+                    text = stringResource(R.string.live_view_connection_lost),
+                    style = MaterialTheme.typography.bodyLarge,
+                    modifier = Modifier.align(Alignment.CenterHorizontally),
+                )
+                Spacer(Modifier.height(16.dp))
+                Button(
+                    onClick = {
+                        recoveryExhausted = false
+                        autoRecovery = 0
+                        discoverAndPlay()
+                    },
+                    modifier = Modifier.align(Alignment.CenterHorizontally),
+                ) {
+                    Text(stringResource(R.string.home_try_again))
+                }
+            }
             url != null -> {
                 AndroidView(
                     factory = { ctx ->
                         PlayerView(ctx).apply {
-                            // The controller is disabled: playback is controlled
-                            // through the app's Play/Stop buttons, and auto-recovery
-                            // owns mid-playback failures.
                             useController = false
                             setShowBuffering(PlayerView.SHOW_BUFFERING_WHEN_PLAYING)
                             setPlayer(player.player)
@@ -308,8 +269,6 @@ internal fun LiveView(
                         .fillMaxWidth()
                         .aspectRatio(16f / 9f),
                 )
-                // During auto-recovery the player keeps showing the last frame
-                // and nothing else changes: recovery is silent and invisible.
             }
             unavailable -> {
                 Text(
@@ -320,43 +279,28 @@ internal fun LiveView(
                     Text(stringResource(R.string.home_try_again))
                 }
             }
-            // A failed discovery is retried automatically with no UI change:
-            // while the URL is unresolved the layout shows the
-            // same "discovering" state as the first load.
             else -> Text(
                 text = stringResource(R.string.live_view_discovering),
                 style = MaterialTheme.typography.bodySmall,
             )
         }
 
-        Spacer(Modifier.height(8.dp))
-        Text(
-            text = playbackLabel(playbackStatus),
-            style = MaterialTheme.typography.bodyMedium,
-        )
-        if (url != null) {
+        if (!recoveryExhausted) {
+            Spacer(Modifier.height(8.dp))
             Text(
-                text = stringResource(
-                    R.string.live_view_metrics,
-                    metrics.firstFrameElapsedMs?.let { "$it ms" } ?: "n/a",
-                    metrics.bytesTransferred,
-                    recoveryCount,
-                ),
-                style = MaterialTheme.typography.bodySmall,
+                text = playbackLabel(playbackStatus, recoveryExhausted),
+                style = MaterialTheme.typography.bodyMedium,
             )
-            Row(
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                val idle = player.player.playbackState == Player.STATE_IDLE
-                if (idle) {
-                    Button(onClick = { discoverAndPlay() }) {
-                        Text(stringResource(R.string.live_view_play))
-                    }
-                } else {
-                    Button(onClick = { player.stop() }) {
-                        Text(stringResource(R.string.live_view_stop))
-                    }
+        }
+        if (url != null && !recoveryExhausted) {
+            val idle = player.player.playbackState == Player.STATE_IDLE
+            if (idle) {
+                Button(onClick = { discoverAndPlay() }) {
+                    Text(stringResource(R.string.live_view_play))
+                }
+            } else {
+                Button(onClick = { player.stop() }) {
+                    Text(stringResource(R.string.live_view_stop))
                 }
             }
         }
@@ -364,14 +308,14 @@ internal fun LiveView(
 }
 
 @Composable
-private fun playbackLabel(status: PlaybackStatus): String =
-    when (status) {
-        PlaybackStatus.Idle -> stringResource(R.string.live_view_starting)
-        PlaybackStatus.Loading -> stringResource(R.string.live_view_starting)
-        PlaybackStatus.Playing -> stringResource(R.string.live_view_playing)
-        // Masked: auto-recovery runs invisibly, so the UI never differs from
-        // normal playback while a fresh session is being re-established.
-        is PlaybackStatus.Error -> stringResource(R.string.live_view_playing)
+private fun playbackLabel(status: PlaybackStatus, recoveryExhausted: Boolean): String =
+    when {
+        recoveryExhausted -> stringResource(R.string.live_view_connection_lost)
+        status is PlaybackStatus.Idle -> stringResource(R.string.live_view_starting)
+        status is PlaybackStatus.Loading -> stringResource(R.string.live_view_starting)
+        status is PlaybackStatus.Playing -> stringResource(R.string.live_view_playing)
+        status is PlaybackStatus.Error -> stringResource(R.string.live_view_playing)
+        else -> stringResource(R.string.live_view_starting)
     }
 
 private const val STREAMS_TIMEOUT_MS = 10_000L

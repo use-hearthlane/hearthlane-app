@@ -232,6 +232,50 @@ class CameraDiscoveryControllerTest {
         assertEquals(CameraDiscoveryState.Loading, controller.state.value)
     }
 
+    @Test
+    fun `stop cancels the connection observer and stops reacting to emissions`() = runTest {
+        val connection = MutableStateFlow<FrigateConnection?>(null)
+        var discoveryCount = 0
+        val controller = controller(connection = connection, scope = backgroundScope) { _, _ ->
+            discoveryCount++
+            CameraDiscoveryState.Loaded(listOf(camera))
+        }
+
+        controller.start()
+        connection.value = FrigateConnection.Connected(TransportKind.LOCAL, "0.17.1")
+        runCurrent()
+        assertEquals(1, discoveryCount)
+
+        controller.stop()
+        // Emit another connection after stop: the controller must not react.
+        connection.value = FrigateConnection.Connected(TransportKind.TAILSCALE, "0.17.1")
+        runCurrent()
+        assertEquals("stop must cancel the observer so no further discoveries run", 1, discoveryCount)
+    }
+
+    @Test
+    fun `start stop start does not duplicate collectors`() = runTest {
+        val connection = MutableStateFlow<FrigateConnection?>(null)
+        var discoveryCount = 0
+        val controller = controller(connection = connection, scope = backgroundScope) { _, _ ->
+            discoveryCount++
+            CameraDiscoveryState.Loaded(listOf(camera))
+        }
+
+        controller.start()
+        connection.value = FrigateConnection.Connected(TransportKind.LOCAL, "0.17.1")
+        runCurrent()
+        assertEquals(1, discoveryCount)
+
+        controller.stop()
+        controller.start()
+        connection.value = null
+        connection.value = FrigateConnection.Connected(TransportKind.TAILSCALE, "0.17.1")
+        runCurrent()
+        // Exactly one discovery for the new transport, not two (no duplicate collector).
+        assertEquals("start/stop/start must not duplicate collectors", 2, discoveryCount)
+    }
+
     private fun controller(
         connection: MutableStateFlow<FrigateConnection?>,
         scope: CoroutineScope,

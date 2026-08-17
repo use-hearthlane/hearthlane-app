@@ -20,6 +20,8 @@ class LocalTransport(
             FrigateTransportResult.Success(
                 probe.probe(config.localBaseUrl, config.localTimeoutMs),
             )
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
         } catch (e: Exception) {
             Log.w(TAG, "local probe failed: ${e.message}")
             FrigateTransportResult.Failure(e.message ?: "local probe failed")

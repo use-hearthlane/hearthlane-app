@@ -3,11 +3,14 @@ package com.homelab.poc.ui
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.compose.ui.test.onNodeWithText
+import com.homelab.poc.core.connectivity.HttpBytesGetter
 import com.homelab.poc.core.connectivity.HttpBytesResult
 import com.homelab.poc.core.frigate.TsnetGateway
 import com.homelab.poc.core.frigate.TransportKind
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
@@ -27,6 +30,7 @@ import org.robolectric.shadows.ShadowLog
  */
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34])
+@OptIn(ExperimentalCoroutinesApi::class)
 class LiveViewTest {
 
     @get:Rule
@@ -126,6 +130,57 @@ class LiveViewTest {
         )
     }
 
+    @Test
+    fun `family-facing live view does not contain transport label or metrics text`() {
+        composeTestRule.setContent {
+            LiveView(
+                cameraId = "backyard",
+                baseUrl = "http://frigate:5000",
+                gateway = RoutingTsnetGateway(),
+                transport = TransportKind.TAILSCALE,
+                connectAttempt = 1,
+                networkTick = 0,
+            )
+        }
+        composeTestRule.waitForIdle()
+
+        composeTestRule.onNodeWithText("Transport: LOCAL").assertDoesNotExist()
+        composeTestRule.onNodeWithText("Transport: TAILSCALE").assertDoesNotExist()
+        composeTestRule.onNodeWithText("LOCAL").assertDoesNotExist()
+        composeTestRule.onNodeWithText("TAILSCALE").assertDoesNotExist()
+        // Metrics diagnostics line must not appear
+        composeTestRule.onNodeWithText("Diagnostics:").assertDoesNotExist()
+    }
+
+    @OptIn(ExperimentalCoroutinesApi::class)
+    @Test
+    fun `recovery exhausted state shows connection lost and try again`() {
+        val failingGetter = FailingHttpBytesGetter()
+        composeTestRule.mainClock.autoAdvance = false
+        composeTestRule.setContent {
+            LiveView(
+                cameraId = "backyard",
+                baseUrl = "http://frigate:5000",
+                gateway = RoutingTsnetGateway(),
+                transport = TransportKind.LOCAL,
+                connectAttempt = 1,
+                networkTick = 0,
+                testGetter = failingGetter,
+            )
+        }
+        composeTestRule.waitForIdle()
+
+        // v2 createComposeRule uses StandardTestDispatcher for Dispatchers.Main,
+        // so mainClock shares the same scheduler as rememberCoroutineScope().
+        // Advance past 3 failures (MAX_AUTO_RECOVERY=2 requires attempt 3 to exhaust).
+        // Each retry delay is DISCOVERY_RETRY_DELAY_MS = 1500ms.
+        composeTestRule.mainClock.advanceTimeBy(5000)
+        composeTestRule.waitForIdle()
+
+        composeTestRule.onNodeWithText("Connection lost").assertIsDisplayed()
+        composeTestRule.onNodeWithText("Try again").assertIsDisplayed()
+    }
+
     private inner class RoutingTsnetGateway : TsnetGateway {
         val requestedUrls = mutableListOf<String>()
 
@@ -168,5 +223,14 @@ class LiveViewTest {
                 url,
                 """{"hall":{},"front_door":{}}""".toByteArray(),
             )
+    }
+
+    /**
+     * HttpBytesGetter that always fails, so the LOCAL recovery budget is
+     * exhausted quickly and the "Connection lost" state is surfaced.
+     */
+    private class FailingHttpBytesGetter : HttpBytesGetter {
+        override suspend fun getBytes(url: String, timeoutMs: Long): HttpBytesResult =
+            throw java.io.IOException("connection refused")
     }
 }

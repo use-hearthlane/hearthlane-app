@@ -84,4 +84,21 @@ class DiagnosticsReportTest {
         assertFalse(cleaned.contains("AAAABBBBCCCCDDDDEEEEFFFF"))
         assertTrue(cleaned.contains("fine"))
     }
+
+    @Test
+    fun `sanitize is accessible as public API for clipboard sanitization`() {
+        // Validates that DiagnosticsReport.sanitize can be called from any
+        // module (SetupScreen uses it for clipboard copy).
+        val raw = "error: Tailscale requires authentication https://login.tailscale.com/a/secret123"
+        val sanitized = DiagnosticsReport.sanitize(raw)
+
+        assertFalse(
+            "sanitize must remove the auth URL",
+            sanitized.contains("login.tailscale.com"),
+        )
+        assertTrue(
+            "non-sensitive content must survive sanitization",
+            sanitized.contains("Tailscale requires authentication"),
+        )
+    }
 }

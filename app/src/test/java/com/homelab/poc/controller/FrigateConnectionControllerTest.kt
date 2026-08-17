@@ -6,6 +6,7 @@ import com.homelab.poc.core.frigate.FrigateConnection
 import com.homelab.poc.core.frigate.TransportKind
 import com.homelab.poc.settings.AppSettings
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.cancelChildren
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.TestScope
@@ -257,6 +258,39 @@ class FrigateConnectionControllerTest {
         assertNull("the shared connection state must be cleared after a reset", controller.connection.value)
         assertNull("the probed transport must be cleared after a reset", controller.lastProbedTransport.value)
         assertNull("the recorded error must be cleared after a reset", controller.lastError.value)
+    }
+
+    @Test
+    fun `cancellation during connect resets _connecting`() = runTest {
+        val dispatcher = StandardTestDispatcher(this.testScheduler)
+        val connectivityManager = ApplicationProvider
+            .getApplicationContext<android.app.Application>()
+            .getSystemService(ConnectivityManager::class.java)
+        val gate = kotlinx.coroutines.CompletableDeferred<FrigateConnection>()
+        val controller = FrigateConnectionController(
+            gateway = com.homelab.poc.test.FakeTsnetGateway(),
+            settings = createSettings(),
+            connectivityManager = connectivityManager,
+            scope = this,
+            connector = { gate.await() },
+            ioDispatcher = dispatcher,
+        )
+
+        controller.connect(restartPlayback = false)
+        // The connect coroutine is suspended on the gate; _connecting is true.
+        assertTrue("_connecting must be true while connect is in flight", controller.connecting.value)
+
+        // Dispatch the coroutine so it enters withContext and suspends on gate.await().
+        advanceUntilIdle()
+
+        // Cancel the scope's children to simulate cancellation.
+        coroutineContext[kotlinx.coroutines.Job]!!.cancelChildren()
+        advanceUntilIdle()
+
+        assertFalse(
+            "_connecting must be reset even after cancellation",
+            controller.connecting.value,
+        )
     }
 
     private fun authRequired(controller: FrigateConnectionController): Boolean {
