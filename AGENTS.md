@@ -2,291 +2,201 @@
 
 ## Project Overview
 
-Hearthlane is an open-source Android gateway for privately accessing services in
-your homelab without exposing them directly to the public Internet. It embeds
-Tailscale connectivity so you can reach self-hosted services from outside the
-home LAN without installing the official Tailscale app.
+Hearthlane is an open-source Android application providing a private, user-facing way to access personal data and resources hosted on infrastructure controlled by the user.
 
-The first implemented integration is remote live access to cameras managed by a
-private Frigate installation. The architecture is intended to support additional
-homelab services (for example Immich, Nextcloud, Home Assistant, monitoring) in
-future versions; those are architectural direction, not committed features.
+**Hearthlane is not a homelab management application.**
 
-The technical foundation was proven as a POC; V1 hardens that foundation into a
-family-facing app around the Frigate integration, and the current milestone is
-release engineering / Play Store readiness.
+The homelab, NAS, home server, or other self-hosted infrastructure is the means by which the user retains control of their data. Hearthlane is the experience that makes those resources accessible from anywhere without requiring private services to be exposed directly to the public Internet.
+
+Tagline:
+
+> Your private way home.
 
 ## Primary Goal
 
-Prove this end-to-end path (V1, Frigate integration):
+Make self-hosted personal resources convenient and private to access from anywhere.
+
+The core proposition is:
+
+> My personal data stays in my infrastructure, but I can access it from anywhere, privately.
+
+Prioritize user-facing personal capabilities over infrastructure administration.
+
+## Current Priority
+
+The immediate development priority is **completing the Frigate integration**.
+
+Target flow:
 
 ```text
-Android application
-    -> embedded Tailscale connectivity
-    -> private tailnet / homelab
-    -> Frigate / go2rtc
-    -> live camera video
+Home
+  -> Cameras
+      -> Camera
+          -> Live view
+          -> Recent events
+              -> Event details
+                  -> Playback
 ```
 
-The POC succeeds when a physical Android device, while outside the home LAN and using mobile data or an unrelated Wi-Fi network, can launch the application and display live video from at least one Frigate camera through the private Tailscale path.
+It must work both on the local network and remotely through Tailscale. The user should not need to understand which connectivity path is being used.
 
-## Non-Goals
+## Current Frigate Scope
 
-Do not expand the current scope to include:
+Prioritize:
 
-- Frigate event browsing
-- Frigate timeline
-- push notifications
-- two-way audio
-- camera PTZ controls
-- user management UI
-- general-purpose VPN functionality for other Android applications
-- full Tailscale client feature parity
-- iOS support
-- production-grade device provisioning
-- polished UI
-- offline downloads
+1. recent events;
+2. event thumbnails and metadata;
+3. event details;
+4. event playback;
+5. basic filtering when justified;
+6. clear empty/error/offline states;
+7. reliable navigation between camera, event list, event detail, and playback.
 
-Future homelab-service integrations (Immich, Nextcloud, Home Assistant,
-monitoring, etc.) are architectural direction, not current-scope work. These may
-be considered after the networking and live-video assumptions are validated.
+Do not reproduce the Frigate administration UI.
 
-## Technology Direction
+Do not introduce generic service discovery merely to support this work.
 
-Preferred application stack:
+## Product Vision
 
-- Android
-- Kotlin
-- Jetpack Compose
-- Android Studio / Gradle
-- Go for the embedded networking component where required
-- Tailscale `tsnet` or another officially supported Tailscale code path
-- Frigate HTTP API
-- Frigate bundled go2rtc for live streaming
+Hearthlane will eventually provide private access to:
 
-Do not introduce Flutter, React Native, or a backend service unless the POC demonstrates a concrete need.
+- family location;
+- home cameras and security events;
+- documents;
+- photos;
+- videos;
+- other personal resources.
+
+Existing self-hosted services are implementation details whenever possible.
+
+Examples:
+
+```text
+Cameras   -> Frigate
+Photos    -> Immich
+Documents -> Nextcloud
+```
+
+The user should interact with the capability, not be forced to understand the underlying service.
+
+## Product Boundary
+
+Hearthlane should NOT become:
+
+- a Proxmox dashboard;
+- a Docker management interface;
+- a Portainer replacement;
+- a network administration interface;
+- a monitoring dashboard;
+- a generic service launcher;
+- a generic homelab dashboard.
+
+A service existing in the user's infrastructure is not sufficient reason to add it to Hearthlane.
+
+## Service Discovery
+
+Automatic discovery of services is not a current product requirement.
+
+Do not introduce a generic service discovery framework unless a concrete user-facing requirement demonstrates that it is necessary.
+
+Prefer explicit integrations and adapters.
+
+## Connectivity
+
+Tailscale is currently the private connectivity layer.
+
+Treat Tailscale as infrastructure, not as the product.
+
+Avoid leaking Tailscale-specific concepts into user-facing flows unless necessary.
+
+Do not expose private services publicly merely to simplify implementation.
+
+Preserve the existing LOCAL -> Tailscale fallback behavior unless a deliberate architectural decision changes it.
 
 ## Architecture Principles
 
-### 1. Keep Tailscale application-scoped
+### User experience over infrastructure
 
-The preferred design is for only this application to use the embedded Tailscale connection.
+Hide infrastructure complexity from users.
 
-Do not create a device-wide VPN unless application-scoped networking proves insufficient for live video.
+### Private by default
 
-A device-wide Android `VpnService` implementation is a fallback experiment, not the default architecture.
+Avoid public exposure of personal services.
 
-### 2. Do not expose Frigate publicly
+### Capability over administration
 
-Frigate must remain reachable only through the private network path.
+Expose useful personal capabilities, not infrastructure management.
 
-Do not:
+### Focused adapters
 
-- open Frigate ports directly to the Internet
-- add a public unauthenticated reverse-proxy endpoint
-- bypass tailnet access controls for convenience
+Integrate existing services through focused adapters rather than creating a premature generic service framework.
 
-### 3. Never embed long-lived administrative credentials
+### Avoid premature abstraction
 
-Do not commit or package:
+Do not build generic discovery, plugin, service registry, or homelab-management abstractions without a demonstrated requirement.
 
-- reusable Tailscale auth keys
-- OAuth client secrets
-- Frigate administrator passwords
-- camera RTSP credentials
-- private TLS keys
-- homelab administrator credentials
+### Incremental delivery
 
-Secrets used during the POC must be provided at build/run time or stored using an appropriate local development mechanism.
+Prefer a complete, reliable experience for one capability over partially implementing many capabilities.
 
-### 4. Treat provisioning as replaceable
+## Non-Goals
 
-For the POC, a manually generated short-lived or one-time enrollment mechanism is acceptable.
+The following are not current goals:
 
-Production provisioning is explicitly out of scope.
+- managing the user's homelab;
+- discovering every service on the user's network;
+- replacing Proxmox;
+- replacing Docker management tools;
+- replacing Frigate administration;
+- becoming a generic launcher for internal applications;
+- exposing every self-hosted service through a common dashboard.
 
-Do not design a large provisioning backend before embedded connectivity is proven.
+## Roadmap
 
-### 5. Prefer Frigate abstractions over direct camera access
+1. Frigate integration;
+2. Settings organization;
+3. New-version/update experience;
+4. family location;
+5. documents/photos/videos;
+6. additional personal capabilities based on concrete user needs.
 
-The mobile application must talk to Frigate/go2rtc, not directly to Hikvision RTSP endpoints.
-
-Frigate remains responsible for camera configuration and stream normalization.
-
-### 6. Minimize dependencies
-
-Every new dependency must have a concrete reason.
-
-Avoid frameworks added only for future possibilities.
+This roadmap is directional. Do not implement future features merely because they appear on the list.
 
 ## Development Rules
 
-- Source code, comments, logs, commit messages, and repository documentation must be written in English.
-- User-facing family UI can later be localized, but localization is not part of the POC.
-- Prefer small, testable modules.
-- Keep networking code separated from UI code.
-- Keep Frigate integration separated from Tailscale integration.
-- Do not silently catch network or playback errors.
-- Log state transitions useful for debugging without logging secrets.
-- Prefer explicit error states over retries with no visibility.
-- Avoid premature abstractions.
+Before changing architecture:
 
-## Suggested Module Boundaries
+1. inspect the current implementation;
+2. identify existing abstractions;
+3. prefer extending a proven pattern over introducing a new generic layer;
+4. preserve existing behavior unless the task explicitly changes it;
+5. keep user-facing infrastructure details out of the UI.
+6. Do not anticipate identity, authentication, or authorization mechanisms until a concrete integration requires it.
 
-```text
-app/
-  ui/
-  navigation/
+For integrations, first determine the minimum API surface required by the user experience.
 
-core/
-  connectivity/
-  frigate/
-  playback/
+For errors, distinguish between:
 
-native/
-  tailscale/
-```
+- no data;
+- unavailable service;
+- unavailable network;
+- expired/missing resource;
+- playback failure.
 
-Responsibilities:
+Do not collapse these states into a generic failure when the UI can communicate them meaningfully.
 
-### `core/connectivity`
+## Release / Compliance
 
-Expose application-oriented connectivity state such as:
+The project is GPL-3.0-only.
 
-- disconnected
-- authenticating
-- connecting
-- connected
-- failed
+Before releases, preserve the procedures documented in `docs/RELEASE.md`, including corresponding-source and third-party-notice requirements.
 
-The Kotlin UI must not depend on low-level Tailscale implementation details.
+Never commit signing credentials, keystores, tokens, private keys, local editor configuration changes, or other secrets.
 
-### `core/frigate`
+## Historical Documents
 
-Provide minimal operations required by the POC:
+`docs/PLAN.md` contains historical Decision Log entries.
 
-- Frigate health/version probe
-- discovery or configuration of the target camera
-- retrieval of live-stream metadata if required
+Do not rewrite historical decisions merely to make them match the current terminology. Record new strategic decisions as new entries.
 
-Do not add event APIs during the POC.
-
-### `core/playback`
-
-Own the Android playback implementation.
-
-Keep transport/player experimentation behind this boundary so WebRTC/MSE/HLS alternatives can be tested without rewriting the UI.
-
-### `native/tailscale`
-
-Contain the Go/Tailscale integration and Android bridge.
-
-Keep this boundary very small.
-
-## POC Milestones
-
-Agents must work in this order unless a blocking technical discovery requires changing it:
-
-1. Create minimal Android application.
-2. Prove Kotlin-to-native/Go bridge if required.
-3. Start embedded Tailscale node.
-4. Authenticate/enroll the embedded node.
-5. Reach a simple private Frigate HTTP endpoint.
-6. Reach Frigate/go2rtc stream metadata.
-7. Render one live camera stream.
-8. Repeat the live-stream test outside the home LAN.
-9. Record results and technical limitations.
-10. Stop.
-
-Do not continue into product features after milestone 9 without an explicit new requirement.
-
-## Validation Requirements
-
-A change that claims embedded connectivity works must include evidence from a physical Android device.
-
-Emulator-only success is insufficient for the final POC result.
-
-At minimum test:
-
-- home Wi-Fi
-- mobile network outside the home LAN
-
-For live video, record:
-
-- time to first frame
-- whether playback remains stable for at least 5 minutes
-- whether reconnect works after switching networks
-- selected live transport
-- relevant Android version/device
-- whether traffic is application-scoped or device-wide
-
-## Definition of Done
-
-The POC is done when all of the following are true:
-
-- The official Tailscale Android application is not required.
-- The POC application obtains private connectivity to the homelab.
-- Frigate is not exposed publicly.
-- At least one configured camera displays live video remotely.
-- The test succeeds while the phone is not connected to the home LAN.
-- No long-lived administrative secret is embedded in the APK.
-- The selected streaming approach and its limitations are documented.
-- A clear go/no-go recommendation for a production app is written.
-
-## Decision Recording
-
-Any significant discovery must be written to `docs/PLAN.md` under the Decision Log.
-
-Important examples:
-
-- `tsnet` can or cannot be packaged acceptably for Android.
-- a `VpnService` is required.
-- WebRTC succeeds or fails over the embedded path.
-- Frigate's preferred live transport changes the architecture.
-- authentication requires a backend for a production implementation.
-
-Do not hide failed experiments. Failed experiments are POC results.
-
-## Security Expectations
-
-Assume family devices are less trusted than infrastructure administrator devices.
-
-The eventual tailnet policy should allow the family application identity to access only what is required for Frigate viewing.
-
-The POC may temporarily use broader access for debugging, but the final validation must identify the minimum required network destinations and ports.
-
-## Commands and Tooling
-
-Prefer standard repository commands such as:
-
-```text
-./gradlew assembleDebug
-./gradlew test
-./gradlew lint
-./gradlew :app:bundleRelease
-```
-
-If a Go module is added:
-
-```text
-go test ./...
-go vet ./...
-```
-
-Any additional build step required to generate an Android-compatible library from Go must be documented in the repository README or build scripts rather than relying on shell history.
-
-## Agent Behavior
-
-When working on this repository:
-
-1. Read `docs/REQUIREMENTS.md`.
-2. Read `docs/PLAN.md`.
-3. Read `docs/V1.md`.
-4. Read `docs/RELEASE.md` when changing build, signing, or release metadata.
-5. Identify the current milestone.
-6. Implement only what is required for that milestone.
-7. Run the relevant checks.
-8. Update the Decision Log when a technical assumption is validated or rejected.
-9. Do not broaden the scope without explicit instruction.
-
-When uncertain, prefer an experiment that validates the riskiest assumption with the least code.
+`docs/PROJECT.md` is the detailed project-vision reference.
