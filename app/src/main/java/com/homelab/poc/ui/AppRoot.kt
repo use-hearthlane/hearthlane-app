@@ -75,7 +75,7 @@ fun AppRoot(
         HearthlaneTheme {
             Surface(modifier = Modifier.fillMaxSize()) {
                 Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    Text(text = "Loading settings…")
+                    Text(text = stringResource(R.string.settings_loading))
                 }
             }
         }

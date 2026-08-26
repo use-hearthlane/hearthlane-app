@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">Hearthlane</string>
+    <string name="settings_loading">Loading settings…</string>
     <string name="frigate_url_label">Frigate URL (works on Wi-Fi and Tailscale)</string>
     <string name="transport_local">LOCAL</string>
     <string name="transport_tailscale">TAILSCALE</string>
@@ -43,6 +44,7 @@
     <string name="settings_app_version">Version %1$s</string>
     <string name="settings_app_build">Build %1$s</string>
     <string name="settings_advanced_title">Advanced</string>
+    <string name="settings_tailscale_title">Tailscale</string>
     <string name="settings_node_hostname">Node hostname: %1$s</string>
     <string name="settings_admin_title">Administrator</string>
     <string name="settings_server_row">Server settings</string>
@@ -102,9 +104,24 @@
     <string name="event_detail_duration">Duration</string>
     <string name="event_detail_zones">Zones</string>
 
+    <!-- Event date/time formats (family-facing, localized) -->
+    <string name="event_time_format">MMM d, HH:mm</string>
+    <string name="event_datetime_format">MMM d, yyyy HH:mm:ss</string>
+
     <!-- Event playback (family-facing) -->
     <string name="event_playback_not_found">This event is no longer available.</string>
     <string name="event_playback_server_error">Could not play this event. Try again.</string>
     <string name="event_playback_network_error">Could not play the event. Check the connection and try again.</string>
+
+    <!-- Frigate detected-object labels (family-facing, localized) -->
+    <string name="frigate_object_person">Person</string>
+    <string name="frigate_object_dog">Dog</string>
+    <string name="frigate_object_cat">Cat</string>
+    <string name="frigate_object_car">Car</string>
+    <string name="frigate_object_truck">Truck</string>
+    <string name="frigate_object_bus">Bus</string>
+    <string name="frigate_object_motorcycle">Motorcycle</string>
+    <string name="frigate_object_bicycle">Bicycle</string>
+    <string name="frigate_object_bird">Bird</string>
 </resources>
 

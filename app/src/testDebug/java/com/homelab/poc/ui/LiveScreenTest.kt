@@ -76,7 +76,7 @@ class LiveScreenTest {
         )
         // The recent-events list is rendered on the camera screen.
         composeTestRule.onNodeWithText("Recent events").assertIsDisplayed()
-        composeTestRule.onNodeWithText("person").assertIsDisplayed()
+        composeTestRule.onNodeWithText("Person").assertIsDisplayed()
     }
 
     @Test
@@ -92,7 +92,7 @@ class LiveScreenTest {
         advanceUntilIdle()
         composeTestRule.waitForIdle()
 
-        composeTestRule.onNodeWithText("person").performClick()
+        composeTestRule.onNodeWithText("Person").performClick()
 
         assertTrue("the tapped event must report its id", selected == "a")
     }

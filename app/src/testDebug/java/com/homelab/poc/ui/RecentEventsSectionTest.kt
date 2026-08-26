@@ -78,9 +78,34 @@ class RecentEventsSectionTest {
         composeTestRule.waitForIdle()
         loadAndIdle(controller)
 
-        composeTestRule.onNodeWithText("person").assertIsDisplayed()
-        composeTestRule.onNodeWithText("car").assertIsDisplayed()
+        composeTestRule.onNodeWithText("Person").assertIsDisplayed()
+        composeTestRule.onNodeWithText("Car").assertIsDisplayed()
         composeTestRule.onNodeWithText("10s").assertIsDisplayed()
+    }
+
+    @Test
+    @Config(qualifiers = "pt-rBR")
+    fun `pt-br locale renders translated labels`() = runTest {
+        val controller = createController(RoutingGetter(recent = eventsJson(personEvent, carEvent, unknownEvent)))
+
+        composeTestRule.setContent { Screen(controller) }
+        composeTestRule.waitForIdle()
+        loadAndIdle(controller)
+
+        composeTestRule.onNodeWithText("Pessoa").assertIsDisplayed()
+        composeTestRule.onNodeWithText("Carro").assertIsDisplayed()
+        composeTestRule.onNodeWithText("horse").assertIsDisplayed()
+    }
+
+    @Test
+    fun `unknown labels fall back to the original value`() = runTest {
+        val controller = createController(RoutingGetter(recent = eventsJson(unknownEvent)))
+
+        composeTestRule.setContent { Screen(controller) }
+        composeTestRule.waitForIdle()
+        loadAndIdle(controller)
+
+        composeTestRule.onNodeWithText("horse").assertIsDisplayed()
     }
 
     @Test
@@ -121,7 +146,7 @@ class RecentEventsSectionTest {
         advanceUntilIdle()
         composeTestRule.waitForIdle()
 
-        composeTestRule.onNodeWithText("person").assertIsDisplayed()
+        composeTestRule.onNodeWithText("Person").assertIsDisplayed()
     }
 
     @Test
@@ -137,7 +162,7 @@ class RecentEventsSectionTest {
         composeTestRule.waitForIdle()
 
         composeTestRule.onNodeWithText("package").assertIsDisplayed()
-        composeTestRule.onNodeWithText("person").assertIsDisplayed()
+        composeTestRule.onNodeWithText("Person").assertIsDisplayed()
     }
 
     @Test
@@ -154,7 +179,7 @@ class RecentEventsSectionTest {
         composeTestRule.waitForIdle()
 
         composeTestRule.onNodeWithText("Could not load more events.").assertIsDisplayed()
-        composeTestRule.onNodeWithText("person").assertIsDisplayed()
+        composeTestRule.onNodeWithText("Person").assertIsDisplayed()
 
         getter.failOlder = false
         composeTestRule.onNodeWithText("Retry").performClick()
@@ -176,7 +201,7 @@ class RecentEventsSectionTest {
         composeTestRule.waitForIdle()
         loadAndIdle(controller)
 
-        composeTestRule.onNodeWithText("person").assertIsDisplayed()
+        composeTestRule.onNodeWithText("Person").assertIsDisplayed()
     }
 
     @Test
@@ -188,7 +213,7 @@ class RecentEventsSectionTest {
         composeTestRule.waitForIdle()
         loadAndIdle(controller)
 
-        composeTestRule.onNodeWithText("person").performClick()
+        composeTestRule.onNodeWithText("Person").performClick()
 
         assertEquals("the tapped row must report the event id", "a", selected)
     }
@@ -233,6 +258,8 @@ class RecentEventsSectionTest {
             """{"id":"b","camera":"backyard","label":"car","start_time":${T - 100},"end_time":null,"has_clip":true,"has_snapshot":true,"zones":[]}"""
         val noSnapshotEvent =
             """{"id":"c","camera":"backyard","label":"person","start_time":$T,"end_time":${T + 5},"has_clip":false,"has_snapshot":false,"zones":[]}"""
+        val unknownEvent =
+            """{"id":"e","camera":"backyard","label":"horse","start_time":$T,"end_time":${T + 5},"has_clip":true,"has_snapshot":true,"zones":[]}"""
         val olderEvent =
             """{"id":"d","camera":"backyard","label":"package","start_time":${T - 500},"end_time":${T - 490},"has_clip":true,"has_snapshot":true,"zones":[]}"""
 

@@ -1,0 +1,129 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- App / general (Portuguese, Brazil) -->
+    <string name="app_name">Hearthlane</string>
+    <string name="settings_loading">Carregando configurações…</string>
+    <string name="frigate_url_label">URL do Frigate (funciona no Wi-Fi e no Tailscale)</string>
+    <string name="transport_local">LOCAL</string>
+    <string name="transport_tailscale">TAILSCALE</string>
+    <string name="frigate_version_value">Versão do Frigate: %1$s</string>
+    <string name="auth_url_hint">Este dispositivo precisa de cadastro. Abra esta URL em um navegador conectado ao administrador da tailnet:</string>
+    <string name="auth_url_pending_hint">A URL de cadastro ainda não está disponível. Aguarde um momento e toque em Tentar novamente.</string>
+    <string name="open_auth_url_button">Abrir URL de login</string>
+    <string name="copy_error_button">Copiar erro</string>
+    <string name="retry_button">Tentar novamente</string>
+
+    <!-- Live view (family-facing) -->
+    <string name="live_view_discovering">Conectando à câmera…</string>
+    <string name="live_view_camera_unavailable">Câmera indisponível</string>
+    <string name="live_view_connection_lost">Conexão perdida</string>
+    <string name="live_view_starting">Iniciando reprodução ao vivo…</string>
+    <string name="live_view_playing">Reproduzindo</string>
+    <string name="live_view_play">Reproduzir</string>
+    <string name="live_view_stop">Parar</string>
+    <string name="enter_fullscreen">Entrar em tela cheia</string>
+    <string name="exit_fullscreen">Sair da tela cheia</string>
+
+    <!-- Setup (administrator-facing) -->
+    <string name="setup_title">Configuração inicial</string>
+    <string name="settings_title">Configurações do servidor</string>
+    <string name="setup_subtitle">Configuração única do administrador. Informe o endereço do servidor de câmeras da sua casa.</string>
+    <string name="setup_url_label">Endereço do servidor Frigate</string>
+    <string name="setup_enter_config">Informe o endereço do servidor e teste a conexão.</string>
+    <string name="setup_testing">Testando conexão…</string>
+    <string name="setup_connected">Conectado. Você pode salvar e continuar.</string>
+    <string name="setup_enrollment_hint">Este dispositivo precisa ser cadastrado antes de acessar seu servidor.</string>
+    <string name="setup_failed">Falha na conexão. Verifique o endereço e tente novamente.</string>
+    <string name="setup_test_button">Testar conexão</string>
+    <string name="setup_retry_button">Testar novamente</string>
+    <string name="setup_finish_button">Salvar e continuar</string>
+    <string name="settings_button">Configurações</string>
+    <string name="back_button">Voltar</string>
+    <string name="refresh_button">Atualizar câmeras</string>
+
+    <!-- Settings / Advanced (administrator-facing) -->
+    <string name="settings_screen_title">Configurações</string>
+    <string name="settings_app_info_title">Informações do aplicativo</string>
+    <string name="settings_app_version">Versão %1$s</string>
+    <string name="settings_app_build">Build %1$s</string>
+    <string name="settings_advanced_title">Avançado</string>
+    <string name="settings_tailscale_title">Tailscale</string>
+    <string name="settings_node_hostname">Hostname do nó: %1$s</string>
+    <string name="settings_admin_title">Administrador</string>
+    <string name="settings_server_row">Configurações do servidor</string>
+    <string name="settings_diagnostics_row">Diagnóstico</string>
+    <string name="settings_reset_tailscale">Redefinir nó Tailscale</string>
+    <string name="settings_reset_confirm_title">Redefinir nó Tailscale?</string>
+    <string name="settings_reset_confirm_body">Isso limpa a identidade do nó. O próximo teste de conexão cadastrará este dispositivo novamente antes de acessar seu servidor fora da rede doméstica.</string>
+    <string name="confirm_button">Redefinir</string>
+    <string name="cancel_button">Cancelar</string>
+
+    <!-- Diagnostics (administrator-facing) -->
+    <string name="diagnostics_title">Diagnóstico</string>
+    <string name="diagnostics_copy_button">Copiar diagnóstico</string>
+    <string name="diagnostics_copied">Copiado</string>
+    <string name="diagnostics_retry_connection">Tentar conexão novamente</string>
+
+    <!-- Home screen (family-facing) -->
+    <string name="home_title">Câmeras</string>
+    <string name="home_connecting">Conectando…</string>
+    <string name="home_connecting_body">Procurando suas câmeras…</string>
+    <string name="home_live">Ao vivo</string>
+    <string name="home_try_again">Tentar novamente</string>
+    <string name="home_loading_cameras">Carregando câmeras…</string>
+    <string name="home_no_cameras">Nenhuma câmera configurada.</string>
+    <string name="home_cameras_error">Não foi possível carregar as câmeras.</string>
+    <string name="home_connection_error">Não foi possível acessar o servidor de câmeras.</string>
+    <string name="camera_unavailable">Câmera indisponível</string>
+    <string name="connection_status_connected">Conectado</string>
+    <string name="connection_status_connecting">Conectando</string>
+    <string name="connection_status_problem">Problema de conexão</string>
+
+    <!-- Camera discovery (administrator-facing) -->
+    <string name="camera_discovery_title">Câmeras encontradas</string>
+    <string name="camera_discovery_loading">Carregando câmeras…</string>
+    <string name="camera_discovery_empty">Nenhuma câmera encontrada.</string>
+    <string name="camera_discovery_refresh">Atualizar</string>
+    <string name="camera_discovery_error">Erro na descoberta: %1$s</string>
+    <string name="connection_state_label">Estado da conexão</string>
+
+    <!-- Recent events (family-facing) -->
+    <string name="recent_events_title">Eventos recentes</string>
+    <string name="recent_events_loading">Carregando eventos…</string>
+    <string name="recent_events_empty">Nenhum evento recente.</string>
+    <string name="recent_events_error">Não foi possível carregar os eventos.</string>
+    <string name="load_older_events">Carregar eventos anteriores</string>
+    <string name="load_more_error">Não foi possível carregar mais eventos.</string>
+    <string name="event_in_progress">Em andamento</string>
+    <string name="event_no_label">Atividade</string>
+    <string name="event_playback_available">Reprodução disponível</string>
+
+    <!-- Event detail (family-facing) -->
+    <string name="event_detail_title">Evento</string>
+    <string name="event_detail_loading">Carregando evento…</string>
+    <string name="event_detail_not_found">Este evento não está mais disponível.</string>
+    <string name="event_detail_error">Não foi possível carregar este evento.</string>
+    <string name="event_detail_time">Horário</string>
+    <string name="event_detail_duration">Duração</string>
+    <string name="event_detail_zones">Zonas</string>
+
+    <!-- Event date/time formats (Portuguese, Brazil) -->
+    <string name="event_time_format">"d 'de' MMM, HH:mm"</string>
+    <string name="event_datetime_format">"d 'de' MMM 'de' yyyy, HH:mm:ss"</string>
+
+    <!-- Event playback (family-facing) -->
+    <string name="event_playback_not_found">Este evento não está mais disponível.</string>
+    <string name="event_playback_server_error">Não foi possível reproduzir este evento. Tente novamente.</string>
+    <string name="event_playback_network_error">Não foi possível reproduzir o evento. Verifique a conexão e tente novamente.</string>
+
+    <!-- Frigate detected-object labels (Portuguese, Brazil) -->
+    <string name="frigate_object_person">Pessoa</string>
+    <string name="frigate_object_dog">Cachorro</string>
+    <string name="frigate_object_cat">Gato</string>
+    <string name="frigate_object_car">Carro</string>
+    <string name="frigate_object_truck">Caminhão</string>
+    <string name="frigate_object_bus">Ônibus</string>
+    <string name="frigate_object_motorcycle">Motocicleta</string>
+    <string name="frigate_object_bicycle">Bicicleta</string>
+    <string name="frigate_object_bird">Pássaro</string>
+</resources>

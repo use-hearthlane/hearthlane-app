@@ -152,7 +152,7 @@ private fun EventDetailContent(
         )
         Spacer(Modifier.height(16.dp))
         Text(
-            text = event.label ?: stringResource(R.string.event_no_label),
+            text = localizedFrigateObjectLabel(event.label),
             style = MaterialTheme.typography.headlineSmall,
             textAlign = TextAlign.Center,
         )
@@ -167,7 +167,7 @@ private fun EventDetailContent(
         Spacer(Modifier.height(16.dp))
         InfoRow(
             label = stringResource(R.string.event_detail_time),
-            value = EventFormat.dateTimeLabel(event.startTime),
+            value = formattedEventDateTime(event.startTime),
         )
         InfoRow(
             label = stringResource(R.string.event_detail_duration),
@@ -251,7 +251,7 @@ private fun EventSnapshot(
     ) {
         if (event.hasSnapshot) {
             val model = thumbnailFactory.eventSnapshot(event.id, baseUrl)
-            val description = event.label ?: stringResource(R.string.event_no_label)
+            val description = localizedFrigateObjectLabel(event.label)
             SubcomposeAsyncImage(
                 model = model,
                 imageLoader = snapshotImageLoader,

@@ -3,6 +3,7 @@ package com.homelab.poc.ui
 import org.junit.Assert.assertEquals
 import org.junit.Test
 import java.time.ZoneOffset
+import java.util.Locale
 
 class EventFormatTest {
 
@@ -32,18 +33,54 @@ class EventFormatTest {
     }
 
     @Test
-    fun `timeLabel formats the epoch in a fixed zone`() {
+    fun `timeLabel formats the epoch in english layout and month names`() {
         assertEquals(
             "Aug 18, 16:58",
-            EventFormat.timeLabel(1787072293.5, ZoneOffset.UTC),
+            EventFormat.timeLabel(
+                1787072293.5,
+                zone = ZoneOffset.UTC,
+                pattern = "MMM d, HH:mm",
+                locale = Locale.US,
+            ),
         )
     }
 
     @Test
-    fun `dateTimeLabel formats the epoch with date, year and seconds in a fixed zone`() {
+    fun `dateTimeLabel formats the epoch with date, year and seconds in english`() {
         assertEquals(
             "Aug 18, 2026 16:58:13",
-            EventFormat.dateTimeLabel(1787072293.5, ZoneOffset.UTC),
+            EventFormat.dateTimeLabel(
+                1787072293.5,
+                zone = ZoneOffset.UTC,
+                pattern = "MMM d, yyyy HH:mm:ss",
+                locale = Locale.US,
+            ),
+        )
+    }
+
+    @Test
+    fun `timeLabel formats the epoch in the pt-br layout and month names`() {
+        assertEquals(
+            "18 de ago., 16:58",
+            EventFormat.timeLabel(
+                1787072293.5,
+                zone = ZoneOffset.UTC,
+                pattern = "d 'de' MMM, HH:mm",
+                locale = Locale.forLanguageTag("pt-BR"),
+            ),
+        )
+    }
+
+    @Test
+    fun `dateTimeLabel formats the epoch with date, year and seconds in pt-br`() {
+        assertEquals(
+            "18 de ago. de 2026, 16:58:13",
+            EventFormat.dateTimeLabel(
+                1787072293.5,
+                zone = ZoneOffset.UTC,
+                pattern = "d 'de' MMM 'de' yyyy, HH:mm:ss",
+                locale = Locale.forLanguageTag("pt-BR"),
+            ),
         )
     }
 }

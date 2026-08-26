@@ -143,13 +143,13 @@ private fun EventRow(
         Spacer(Modifier.width(12.dp))
         Column(modifier = Modifier.weight(1f)) {
             Text(
-                text = event.label ?: stringResource(R.string.event_no_label),
+                text = localizedFrigateObjectLabel(event.label),
                 style = MaterialTheme.typography.titleMedium,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
             Text(
-                text = EventFormat.timeLabel(event.startTime),
+                text = formattedEventTime(event.startTime),
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -180,7 +180,7 @@ private fun EventThumbnail(
     Box(modifier = Modifier.width(88.dp)) {
         if (event.hasSnapshot) {
             val model = thumbnailFactory.eventThumbnail(event.id, baseUrl)
-            val description = event.label ?: stringResource(R.string.event_no_label)
+            val description = localizedFrigateObjectLabel(event.label)
             SubcomposeAsyncImage(
                 model = model,
                 imageLoader = snapshotImageLoader,

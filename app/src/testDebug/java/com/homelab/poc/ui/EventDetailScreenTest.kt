@@ -97,12 +97,25 @@ class EventDetailScreenTest {
         composeTestRule.waitForIdle()
         loadAndIdle(controller)
 
-        composeTestRule.onNodeWithContentDescription("person").assertIsDisplayed()
-        composeTestRule.onNodeWithText("person").assertIsDisplayed()
+        composeTestRule.onNodeWithContentDescription("Person").assertIsDisplayed()
+        composeTestRule.onNodeWithText("Person").assertIsDisplayed()
         composeTestRule.onNodeWithText("10s").assertIsDisplayed()
         composeTestRule.onNodeWithText("Time").assertIsDisplayed()
         composeTestRule.onNodeWithText("Zones").performScrollTo().assertIsDisplayed()
         composeTestRule.onNodeWithText("yard").performScrollTo().assertIsDisplayed()
+    }
+
+    @Test
+    @Config(qualifiers = "pt-rBR")
+    fun `pt-br locale renders the translated label`() = runTest {
+        val controller = createController(EventGetter(body = noClipEvent))
+
+        composeTestRule.setContent { Screen(controller) }
+        composeTestRule.waitForIdle()
+        loadAndIdle(controller)
+
+        composeTestRule.onNodeWithText("Pessoa").assertIsDisplayed()
+        composeTestRule.onNodeWithContentDescription("Pessoa").assertIsDisplayed()
     }
 
     @Test
@@ -113,8 +126,8 @@ class EventDetailScreenTest {
         composeTestRule.waitForIdle()
         loadAndIdle(controller)
 
-        composeTestRule.onNodeWithText("person").assertIsDisplayed()
-        composeTestRule.onNodeWithContentDescription("person").assertDoesNotExist()
+        composeTestRule.onNodeWithText("Person").assertIsDisplayed()
+        composeTestRule.onNodeWithContentDescription("Person").assertDoesNotExist()
     }
 
     @Test
@@ -157,7 +170,7 @@ class EventDetailScreenTest {
         advanceUntilIdle()
         composeTestRule.waitForIdle()
 
-        composeTestRule.onNodeWithText("person").assertIsDisplayed()
+        composeTestRule.onNodeWithText("Person").assertIsDisplayed()
     }
 
     @Test

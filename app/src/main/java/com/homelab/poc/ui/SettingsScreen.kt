@@ -94,7 +94,7 @@ fun SettingsScreen(
 
             // -- Tailscale section --
             Text(
-                text = "Tailscale",
+                text = stringResource(R.string.settings_tailscale_title),
                 style = MaterialTheme.typography.titleMedium,
                 color = MaterialTheme.colorScheme.primary,
             )
