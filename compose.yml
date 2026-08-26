@@ -34,6 +34,7 @@ services:
       RELEASE_STORE_PASSWORD: ${RELEASE_STORE_PASSWORD}
       RELEASE_KEY_ALIAS: ${RELEASE_KEY_ALIAS}
       RELEASE_KEY_PASSWORD: ${RELEASE_KEY_PASSWORD}
+      GH_TOKEN: ${GH_TOKEN}
 
     volumes:
       # Current repository only.

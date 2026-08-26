@@ -42,6 +42,8 @@ RUN mkdir -p "${ANDROID_HOME}/cmdline-tools" \
     && mkdir -p "${GOPATH}" \
     && chown -R opencode:opencode "${GOPATH}"
 
+RUN apt-get update && apt-get install -y gh
+
 USER opencode
 
 RUN go install golang.org/x/mobile/cmd/gomobile@${GOMOBILE_VERSION} \
