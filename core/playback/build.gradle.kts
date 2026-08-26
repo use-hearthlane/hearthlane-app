@@ -41,4 +41,11 @@ dependencies {
     implementation(libs.media3.ui)
 
     testImplementation(libs.junit)
+    // The LOCAL end-to-end test drives the real HttpUrlConnectionStreamGetter
+    // through StreamingHttpDataSource (core/playback does not depend on
+    // core/frigate for its production code).
+    testImplementation(project(":core:frigate"))
+    // Robolectric provides a working android.net.Uri for the DataSource
+    // contract tests (getUri/finalUrl, DataSpec building, MediaItem.fromUri).
+    testImplementation(libs.robolectric)
 }

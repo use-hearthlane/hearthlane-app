@@ -22,6 +22,10 @@ internal class FrigateSnapshotKeyer : Keyer<FrigateSnapshot> {
             append(data.refreshKey)
             append(SEPARATOR)
             append(data.transport.name)
+            data.resourceUrl?.let {
+                append(SEPARATOR)
+                append(it)
+            }
         }
     }
 

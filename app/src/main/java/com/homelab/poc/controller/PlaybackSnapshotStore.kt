@@ -60,6 +60,7 @@ class PlaybackSnapshotStore {
             PlaybackStatus.Idle -> "idle"
             PlaybackStatus.Loading -> "loading"
             PlaybackStatus.Playing -> "playing"
+            PlaybackStatus.Ended -> "ended"
             is PlaybackStatus.Error -> "error"
         }
     }

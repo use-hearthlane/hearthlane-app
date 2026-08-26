@@ -28,12 +28,17 @@ import coil3.SingletonImageLoader
 import com.homelab.poc.BuildConfig
 import com.homelab.poc.R
 import com.homelab.poc.controller.CameraDiscoveryController
+import com.homelab.poc.controller.EventDetailController
 import com.homelab.poc.controller.FrigateConnectionController
 import com.homelab.poc.controller.PlaybackSnapshotStore
+import com.homelab.poc.controller.RecentEventsController
 import com.homelab.poc.core.frigate.Camera
 import com.homelab.poc.core.frigate.CameraDiscoveryState
 import com.homelab.poc.core.frigate.FrigateConfig
 import com.homelab.poc.core.frigate.FrigateConnection
+import com.homelab.poc.core.frigate.FrigateEventApi
+import com.homelab.poc.core.frigate.bytesGetterFor
+import com.homelab.poc.core.frigate.streamGetterFor
 import com.homelab.poc.navigation.AppNavigation
 import com.homelab.poc.navigation.Screen
 import com.homelab.poc.settings.AppSettings
@@ -272,22 +277,95 @@ fun AppRoot(
                     }
                     LiveDestination.RenderLive -> {
                         // liveDestination guarantees camera != null and connection is Connected here.
+                        val conn = connection as FrigateConnection.Connected
+                        val eventsApi = remember(conn.transport, controller.gateway) {
+                            FrigateEventApi(bytesGetterFor(conn.transport, controller.gateway))
+                        }
+                        val eventsController = remember(eventsApi, screen.cameraId) {
+                            RecentEventsController(
+                                api = eventsApi,
+                                cameraId = screen.cameraId,
+                                baseUrl = { baseUrl },
+                                limit = EVENTS_PAGE_SIZE,
+                                scope = scope,
+                            )
+                        }
+                        // Load the camera's recent events while the camera screen is shown.
+                        LaunchedEffect(eventsController) { eventsController.loadInitial() }
                         LiveScreen(
                             cameraId = screen.cameraId,
                             displayName = camera!!.displayName,
                             baseUrl = baseUrl,
                             gateway = controller.gateway,
-                            transport = (connection as FrigateConnection.Connected).transport,
+                            transport = conn.transport,
                             connectAttempt = connectAttempt,
                             networkTick = networkTick,
+                            eventsController = eventsController,
+                            thumbnailFactory = thumbnailFactory,
+                            snapshotImageLoader = snapshotImageLoader,
                             playbackSnapshotStore = playbackSnapshotStore,
                             onBack = { navigation.navigateBack() },
+                            onEventSelected = { eventId ->
+                                navigation.navigateTo(Screen.EventDetail(screen.cameraId, eventId))
+                            },
                         )
                     }
                     LiveDestination.GoBack -> {
                         // Camera not found or connection lost without pending enrollment.
                         navigation.navigateBack()
                     }
+                }
+            }
+            is Screen.EventDetail -> {
+                // Keep the network-change listener alive so the detail follows the
+                // LOCAL -> Tailscale fallback without user interaction.
+                DisposableEffect(controller) {
+                    controller.start()
+                    onDispose { controller.stop() }
+                }
+                val camera = resolveLiveCamera(screen.cameraId, selectedCamera, discoveryState)
+                val conn = connection as? FrigateConnection.Connected
+                when {
+                    // Enrollment routing is owned by the global LaunchedEffect;
+                    // keep the placeholder visible while it happens.
+                    (connection as? FrigateConnection.Failed)?.authRequired == true ->
+                        ConnectingPlaceholder(text = stringResource(R.string.home_connecting_body))
+                    camera != null && conn != null -> {
+                        val streamGetter = remember(conn.transport, controller.gateway) {
+                            streamGetterFor(conn.transport, controller.gateway)
+                        }
+                        val eventsApi = remember(conn.transport, controller.gateway) {
+                            FrigateEventApi(bytesGetterFor(conn.transport, controller.gateway))
+                        }
+                        val detailController = remember(eventsApi, streamGetter, screen.eventId) {
+                            EventDetailController(
+                                context = context,
+                                api = eventsApi,
+                                eventId = screen.eventId,
+                                baseUrl = { baseUrl },
+                                getter = streamGetter,
+                                clipUrl = { eventsApi.clipUrl(baseUrl, screen.eventId) },
+                                scope = scope,
+                            )
+                        }
+                        // Release the embedded player (closing the streaming
+                        // connection) when the screen leaves or the transport
+                        // changes; the event is never replayed automatically.
+                        DisposableEffect(detailController) {
+                            onDispose { detailController.release() }
+                        }
+                        // Load the event when the screen is entered.
+                        LaunchedEffect(detailController) { detailController.load() }
+                        EventDetailScreen(
+                            controller = detailController,
+                            thumbnailFactory = thumbnailFactory,
+                            snapshotImageLoader = snapshotImageLoader,
+                            baseUrl = baseUrl,
+                            cameraDisplayName = camera.displayName,
+                            onBack = { navigation.navigateBack() },
+                        )
+                    }
+                    else -> navigation.navigateBack()
                 }
             }
         }
@@ -349,3 +427,6 @@ private fun ConnectingPlaceholder(text: String) {
         }
     }
 }
+
+/** Initial page size for the recent-events list. */
+private const val EVENTS_PAGE_SIZE = 20

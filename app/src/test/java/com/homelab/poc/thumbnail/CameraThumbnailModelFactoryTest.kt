@@ -45,4 +45,76 @@ class CameraThumbnailModelFactoryTest {
         // implementation detail; the UI only receives the opaque Coil model.
         assertTrue(snapshot.getter is com.homelab.poc.core.frigate.TsnetHttpBytesGetter)
     }
+
+    @Test
+    fun `eventThumbnail builds the event thumbnail resource URL`() {
+        val factory = CameraThumbnailModelFactory(
+            connection = MutableStateFlow(
+                FrigateConnection.Connected(TransportKind.LOCAL, "0.17.1"),
+            ),
+            gateway = FakeTsnetGateway(),
+        )
+
+        val model = factory.eventThumbnail("1787072293.499881-q04v5h", "http://frigate")
+
+        assertTrue(model is FrigateSnapshot)
+        val snapshot = model as FrigateSnapshot
+        assertEquals(
+            "http://frigate/api/events/1787072293.499881-q04v5h/thumbnail.jpg",
+            snapshot.snapshotUrl(),
+        )
+        // The event id is the stable cache identity for the Coil key.
+        assertEquals("1787072293.499881-q04v5h", snapshot.cameraId)
+    }
+
+    @Test
+    fun `eventThumbnail respects the current transport getter`() {
+        val factory = CameraThumbnailModelFactory(
+            connection = MutableStateFlow(
+                FrigateConnection.Connected(TransportKind.TAILSCALE, "0.17.1"),
+            ),
+            gateway = FakeTsnetGateway(),
+        )
+
+        val model = factory.eventThumbnail("evt-1", "http://frigate")
+
+        assertTrue((model as FrigateSnapshot).getter is com.homelab.poc.core.frigate.TsnetHttpBytesGetter)
+        assertEquals(TransportKind.TAILSCALE, model.transport)
+    }
+
+    @Test
+    fun `eventSnapshot builds the snapshot resource URL`() {
+        val factory = CameraThumbnailModelFactory(
+            connection = MutableStateFlow(
+                FrigateConnection.Connected(TransportKind.LOCAL, "0.17.1"),
+            ),
+            gateway = FakeTsnetGateway(),
+        )
+
+        val model = factory.eventSnapshot("1787072293.499881-q04v5h", "http://frigate")
+
+        assertTrue(model is FrigateSnapshot)
+        val snapshot = model as FrigateSnapshot
+        assertEquals(
+            "http://frigate/api/events/1787072293.499881-q04v5h/snapshot.jpg",
+            snapshot.snapshotUrl(),
+        )
+        // The event id is the stable cache identity for the Coil key.
+        assertEquals("1787072293.499881-q04v5h", snapshot.cameraId)
+    }
+
+    @Test
+    fun `eventSnapshot respects the current transport getter`() {
+        val factory = CameraThumbnailModelFactory(
+            connection = MutableStateFlow(
+                FrigateConnection.Connected(TransportKind.TAILSCALE, "0.17.1"),
+            ),
+            gateway = FakeTsnetGateway(),
+        )
+
+        val model = factory.eventSnapshot("evt-1", "http://frigate")
+
+        assertTrue((model as FrigateSnapshot).getter is com.homelab.poc.core.frigate.TsnetHttpBytesGetter)
+        assertEquals(TransportKind.TAILSCALE, model.transport)
+    }
 }

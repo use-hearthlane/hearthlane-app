@@ -106,6 +106,11 @@ class TsnetGatewayImpl(
             TailscaleBridge.httpGetBytes(url, timeoutMs)
         }
 
+    override suspend fun httpOpenStream(url: String, connectTimeoutMs: Long) =
+        withContext(Dispatchers.IO) {
+            TailscaleBridge.httpOpenStream(url, connectTimeoutMs)
+        }
+
     private companion object {
         const val TAG = "FrigateConnection"
         const val POLL_INTERVAL_MS = 500L

@@ -81,5 +81,30 @@
     <string name="camera_discovery_refresh">Refresh</string>
     <string name="camera_discovery_error">Discovery error: %1$s</string>
     <string name="connection_state_label">Connection state</string>
+
+    <!-- Recent events (family-facing) -->
+    <string name="recent_events_title">Recent events</string>
+    <string name="recent_events_loading">Loading events…</string>
+    <string name="recent_events_empty">No recent events.</string>
+    <string name="recent_events_error">Could not load events.</string>
+    <string name="load_older_events">Load older events</string>
+    <string name="load_more_error">Could not load more events.</string>
+    <string name="event_in_progress">In progress</string>
+    <string name="event_no_label">Activity</string>
+    <string name="event_playback_available">Playback available</string>
+
+    <!-- Event detail (family-facing) -->
+    <string name="event_detail_title">Event</string>
+    <string name="event_detail_loading">Loading event…</string>
+    <string name="event_detail_not_found">This event is no longer available.</string>
+    <string name="event_detail_error">Could not load this event.</string>
+    <string name="event_detail_time">Time</string>
+    <string name="event_detail_duration">Duration</string>
+    <string name="event_detail_zones">Zones</string>
+
+    <!-- Event playback (family-facing) -->
+    <string name="event_playback_not_found">This event is no longer available.</string>
+    <string name="event_playback_server_error">Could not play this event. Try again.</string>
+    <string name="event_playback_network_error">Could not play the event. Check the connection and try again.</string>
 </resources>
 

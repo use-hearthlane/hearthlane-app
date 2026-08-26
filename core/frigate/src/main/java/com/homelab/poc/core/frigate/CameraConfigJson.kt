@@ -78,6 +78,33 @@ internal object CameraConfigJson {
     }
 
     /**
+     * Returns the raw JSON text of each element of a top-level array, in
+     * document order.
+     *
+     * @throws IllegalArgumentException when [json] is not a JSON array.
+     */
+    fun arrayElements(json: String): List<String> {
+        var i = skipWs(json, 0)
+        expect(json, i, '[')
+        i++
+        val out = ArrayList<String>()
+        while (true) {
+            i = skipWs(json, i)
+            if (i >= json.length) fail("unterminated array")
+            if (json[i] == ']') return out
+            val elementEnd = valueEnd(json, i)
+            out.add(json.substring(i, elementEnd))
+            i = skipWs(json, elementEnd)
+            if (i >= json.length) fail("unterminated array")
+            when (json[i]) {
+                ',' -> i++
+                ']' -> return out
+                else -> fail("expected ',' or ']' after element")
+            }
+        }
+    }
+
+    /**
      * Decodes a JSON string token; returns null when [raw] is not a JSON
      * string (including the `null` literal).
      */
@@ -93,6 +120,9 @@ internal object CameraConfigJson {
         "false" -> false
         else -> null
     }
+
+    /** Parses a JSON number literal; returns null when [raw] is not a number. */
+    fun numberValue(raw: String): Double? = raw.trim().toDoubleOrNull()
 
     private fun parseString(json: String, start: Int): Pair<String, Int> {
         if (start >= json.length || json[start] != '"') fail("expected string")

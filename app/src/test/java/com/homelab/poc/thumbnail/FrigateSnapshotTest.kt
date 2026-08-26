@@ -38,4 +38,21 @@ class FrigateSnapshotTest {
             snapshot.snapshotUrl(),
         )
     }
+
+    @Test
+    fun `snapshotUrl uses the explicit resource URL when set`() {
+        val snapshot = FrigateSnapshot(
+            cameraId = "1787072293.499881-q04v5h",
+            baseUrl = "http://site.omni.corp",
+            refreshKey = 0,
+            transport = TransportKind.LOCAL,
+            getter = FakeHttpBytesGetter(),
+            resourceUrl = "http://site.omni.corp/api/events/1787072293.499881-q04v5h/thumbnail.jpg",
+        )
+
+        assertEquals(
+            "http://site.omni.corp/api/events/1787072293.499881-q04v5h/thumbnail.jpg",
+            snapshot.snapshotUrl(),
+        )
+    }
 }

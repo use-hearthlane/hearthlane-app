@@ -3,10 +3,11 @@ package com.homelab.poc.ui
 import android.app.Activity
 import android.content.pm.ActivityInfo
 import android.content.res.Configuration
-import android.os.Build
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -33,11 +34,24 @@ import androidx.compose.ui.unit.dp
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
+import coil3.ImageLoader
 import com.homelab.poc.R
 import com.homelab.poc.controller.PlaybackSnapshotStore
+import com.homelab.poc.controller.RecentEventsController
 import com.homelab.poc.core.frigate.TransportKind
 import com.homelab.poc.core.frigate.TsnetGateway
+import com.homelab.poc.thumbnail.CameraThumbnailModelFactory
 
+/**
+ * The camera screen: the live player on top and, in portrait, the camera's
+ * recent-events list directly below it (the list is content of this screen, not
+ * an intermediate destination). The toolbar only carries the screen's
+ * navigation (back); no playback or event actions are added.
+ *
+ * In landscape and fullscreen the video dominates the screen (the list is a
+ * portrait concern). The [RecentEventsController] is owned by the caller so it
+ * survives recomposition and follows the camera context.
+ */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 internal fun LiveScreen(
@@ -48,8 +62,12 @@ internal fun LiveScreen(
     transport: TransportKind,
     connectAttempt: Int,
     networkTick: Int,
+    eventsController: RecentEventsController,
+    thumbnailFactory: CameraThumbnailModelFactory,
+    snapshotImageLoader: ImageLoader,
     playbackSnapshotStore: PlaybackSnapshotStore? = null,
     onBack: () -> Unit,
+    onEventSelected: (String) -> Unit,
 ) {
     val context = LocalContext.current
     val activity = context as? Activity
@@ -117,25 +135,54 @@ internal fun LiveScreen(
             }
         },
     ) { innerPadding ->
-        Box(
-            modifier = if (fullscreen) {
-                Modifier.fillMaxSize()
-            } else {
-                Modifier.fillMaxSize().padding(innerPadding)
-            },
-        ) {
-            LiveView(
-                cameraId = cameraId,
-                baseUrl = baseUrl,
-                gateway = gateway,
-                transport = transport,
-                connectAttempt = connectAttempt,
-                networkTick = networkTick,
-                modifier = Modifier.fillMaxSize(),
-                playbackSnapshotStore = playbackSnapshotStore,
-                fullscreen = fullscreen,
-                onToggleFullscreen = { fullscreen = !fullscreen },
-            )
+        val contentModifier = if (fullscreen) {
+            Modifier.fillMaxSize()
+        } else {
+            Modifier.fillMaxSize().padding(innerPadding)
+        }
+        val toggleFullscreen: () -> Unit = { fullscreen = !fullscreen }
+        if (fullscreen || isLandscape) {
+            // Video dominates: the list is a portrait concern.
+            Box(modifier = contentModifier) {
+                LiveView(
+                    cameraId = cameraId,
+                    baseUrl = baseUrl,
+                    gateway = gateway,
+                    transport = transport,
+                    connectAttempt = connectAttempt,
+                    networkTick = networkTick,
+                    modifier = Modifier.fillMaxSize(),
+                    playbackSnapshotStore = playbackSnapshotStore,
+                    fullscreen = fullscreen,
+                    onToggleFullscreen = toggleFullscreen,
+                )
+            }
+        } else {
+            Column(modifier = contentModifier) {
+                LiveView(
+                    cameraId = cameraId,
+                    baseUrl = baseUrl,
+                    gateway = gateway,
+                    transport = transport,
+                    connectAttempt = connectAttempt,
+                    networkTick = networkTick,
+                    modifier = Modifier.fillMaxWidth(),
+                    playbackSnapshotStore = playbackSnapshotStore,
+                    fullscreen = false,
+                    onToggleFullscreen = toggleFullscreen,
+                )
+                RecentEventsSection(
+                    controller = eventsController,
+                    thumbnailFactory = thumbnailFactory,
+                    snapshotImageLoader = snapshotImageLoader,
+                    baseUrl = baseUrl,
+                    onEventSelected = onEventSelected,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 8.dp)
+                        .weight(1f),
+                )
+            }
         }
     }
 }

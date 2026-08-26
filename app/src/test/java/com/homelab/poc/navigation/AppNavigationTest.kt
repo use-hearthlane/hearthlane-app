@@ -91,4 +91,27 @@ class AppNavigationTest {
         navigation.navigateBack()
         assertEquals(Screen.Home, navigation.current)
     }
+
+    @Test
+    fun `EventDetail is pushed with camera and event id from the camera screen`() {
+        val navigation = AppNavigation()
+        navigation.navigateTo(Screen.Live("backyard"))
+        navigation.navigateTo(Screen.EventDetail("backyard", "evt-1"))
+        val current = navigation.current as Screen.EventDetail
+        assertEquals("camera id must be preserved on the route", "backyard", current.cameraId)
+        assertEquals("event id must be preserved on the route", "evt-1", current.eventId)
+    }
+
+    @Test
+    fun `back from EventDetail returns directly to the camera screen`() {
+        val navigation = AppNavigation()
+        navigation.navigateTo(Screen.Live("backyard"))
+        navigation.navigateTo(Screen.EventDetail("backyard", "evt-1"))
+        navigation.navigateBack()
+        assertEquals(
+            "back from EventDetail must land directly on the camera screen (no intermediate list)",
+            Screen.Live("backyard"),
+            navigation.current,
+        )
+    }
 }

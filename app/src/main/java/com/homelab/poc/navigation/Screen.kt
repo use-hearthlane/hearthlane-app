@@ -30,6 +30,15 @@ sealed interface Screen {
      * family-facing without re-querying discovery.
      */
     data class Live(val cameraId: String) : Screen
+
+    /**
+     * Details for a single event. Reached from the camera screen's recent-events
+     * list. The route carries the camera id for navigation context and the event
+     * id, which is the identity of the resource: the detail screen fetches the
+     * event itself and never receives the whole [Event] as a navigation
+     * argument.
+     */
+    data class EventDetail(val cameraId: String, val eventId: String) : Screen
 }
 
 /**

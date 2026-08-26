@@ -82,4 +82,11 @@ class PlaybackSnapshotStoreTest {
 
         assertEquals(1100L, store.snapshot.value.firstFrameElapsedMs)
     }
+
+    @Test
+    fun `an ended session maps to the ended label`() {
+        store.record(PlaybackStatus.Ended, PlayerMetrics(), 0)
+
+        assertEquals("ended", store.snapshot.value.playbackState)
+    }
 }

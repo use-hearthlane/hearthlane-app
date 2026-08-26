@@ -3,8 +3,10 @@ package com.homelab.poc.tailscale
 import com.homelab.poc.core.connectivity.ConnectivityState
 import com.homelab.poc.core.connectivity.ConnectivityStatus
 import com.homelab.poc.core.connectivity.HttpBytesResult
+import com.homelab.poc.core.connectivity.HttpStream
 import com.homelab.poc.tsembed.Tsembed
 import org.json.JSONObject
+import java.util.concurrent.atomic.AtomicBoolean
 
 /**
  * Minimal Kotlin bridge over the gomobile-generated [Tsembed] binding.
@@ -58,6 +60,17 @@ object TailscaleBridge {
     }
 
     /**
+     * Opens an HTTP GET exclusively over the embedded tailnet as a progressive
+     * [HttpStream]. Blocks the calling thread and must not be invoked on the
+     * main thread. The body is read incrementally through [HttpStream.read],
+     * which pulls bounded chunks from the Go side; it is never buffered whole.
+     */
+    fun httpOpenStream(url: String, connectTimeoutMs: Long): HttpStream {
+        val info = Tsembed.openHttpStream(url, connectTimeoutMs)
+        return TsnetHttpStream(info.id, info.statusCode.toInt(), info.contentType, info.finalURL)
+    }
+
+    /**
      * Reports the current embedded node state. Cheap to poll for a UI loop.
      * Runs a blocking Go call and should not be invoked on the main thread.
      */
@@ -78,5 +91,35 @@ object TailscaleBridge {
         "Failed" -> ConnectivityState.FAILED
         "Stopped" -> ConnectivityState.STOPPED
         else -> ConnectivityState.DISCONNECTED
+    }
+}
+
+/**
+ * [HttpStream] backed by a stateful Go stream handle. Each [read] pulls one
+ * bounded chunk from the Go side; EOF is reported by an empty chunk. [close]
+ * is idempotent and closes the Go stream, which also unblocks a pending read.
+ */
+private class TsnetHttpStream(
+    private val id: Long,
+    override val statusCode: Int,
+    override val contentType: String?,
+    override val finalUrl: String,
+) : HttpStream {
+
+    private val closed = AtomicBoolean(false)
+
+    override fun read(buffer: ByteArray, offset: Int, length: Int): Int {
+        if (length <= 0) return 0
+        if (closed.get()) return -1
+        val chunk = Tsembed.readChunk(id, length.toLong())
+        if (chunk.isEmpty()) return -1
+        chunk.copyInto(buffer, destinationOffset = offset, startIndex = 0, endIndex = chunk.size)
+        return chunk.size
+    }
+
+    override fun close() {
+        if (closed.compareAndSet(false, true)) {
+            Tsembed.closeStream(id)
+        }
     }
 }

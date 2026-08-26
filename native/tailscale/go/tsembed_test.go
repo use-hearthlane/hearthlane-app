@@ -12,6 +12,7 @@ import (
 	"net/http/httptest"
 	"net/netip"
 	urlpkg "net/url"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -762,5 +763,345 @@ func TestCacheKeyNormalization(t *testing.T) {
 	}
 	if cacheKey("site.omni.corp") != "site.omni.corp" {
 		t.Fatalf("cacheKey plain = %q", cacheKey("site.omni.corp"))
+	}
+}
+
+// --- Streaming HTTP stream tests ---
+
+// dialReal connects over the host network; used to drive openHttpStream against
+// httptest servers without a running node.
+func dialReal(ctx context.Context, ip netip.Addr, port int) (net.Conn, error) {
+	var d net.Dialer
+	return d.DialContext(ctx, "tcp", net.JoinHostPort(ip.String(), strconv.Itoa(port)))
+}
+
+// openTestStream opens a stream against a live httptest server using the real
+// host dialer, so the whole request/stream flow is exercised.
+func openTestStream(t *testing.T, url string) *HttpStreamInfo {
+	t.Helper()
+	info, err := openHttpStream(url, 2000, nil, dialReal)
+	if err != nil {
+		t.Fatalf("openHttpStream: %v", err)
+	}
+	return info
+}
+
+func TestOpenHttpStreamPreservesMetadataWithoutReadingBody(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/clip", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "video/mp4")
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte("moov"))
+	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	info := openTestStream(t, srv.URL+"/clip")
+	defer CloseStream(info.Id)
+
+	if info.StatusCode != http.StatusOK {
+		t.Fatalf("StatusCode = %d, want 200", info.StatusCode)
+	}
+	if info.ContentType != "video/mp4" {
+		t.Fatalf("ContentType = %q, want video/mp4", info.ContentType)
+	}
+	if info.FinalURL != srv.URL+"/clip" {
+		t.Fatalf("FinalURL = %q, want %q", info.FinalURL, srv.URL+"/clip")
+	}
+
+	// The body must not have been consumed by Open: the first read returns it.
+	chunk, err := ReadChunk(info.Id, 1024)
+	if err != nil {
+		t.Fatalf("first ReadChunk: %v", err)
+	}
+	if string(chunk) != "moov" {
+		t.Fatalf("first chunk = %q, want %q", chunk, "moov")
+	}
+}
+
+func TestStreamReadChunksAndEOF(t *testing.T) {
+	const chunkSize = 1024
+	const chunks = 5
+	mux := http.NewServeMux()
+	mux.HandleFunc("/big", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		for i := 0; i < chunks; i++ {
+			w.Write(bytes.Repeat([]byte{byte(i)}, chunkSize))
+			w.(http.Flusher).Flush() // chunked: no Content-Length
+		}
+	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	info := openTestStream(t, srv.URL+"/big")
+	defer CloseStream(info.Id)
+
+	var total []byte
+	var reads int
+	for {
+		chunk, err := ReadChunk(info.Id, 2048)
+		if err != nil {
+			t.Fatalf("ReadChunk: %v", err)
+		}
+		if len(chunk) == 0 {
+			break // EOF
+		}
+		if len(chunk) > 2048 {
+			t.Fatalf("chunk of %d bytes exceeds the requested max", len(chunk))
+		}
+		reads++
+		total = append(total, chunk...)
+	}
+	want := chunks * chunkSize
+	if len(total) != want {
+		t.Fatalf("total bytes = %d, want %d", len(total), want)
+	}
+	if reads < 3 {
+		t.Fatalf("body was read in %d chunk(s), expected incremental reads", reads)
+	}
+}
+
+func TestStreamChunkSmallerThanRequested(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/tiny", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte("abcde"))
+	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	info := openTestStream(t, srv.URL+"/tiny")
+	defer CloseStream(info.Id)
+
+	chunk, err := ReadChunk(info.Id, 4096)
+	if err != nil {
+		t.Fatalf("ReadChunk: %v", err)
+	}
+	if string(chunk) != "abcde" {
+		t.Fatalf("chunk = %q, want abcde", chunk)
+	}
+	chunk, err = ReadChunk(info.Id, 4096)
+	if err != nil {
+		t.Fatalf("ReadChunk after EOF: %v", err)
+	}
+	if len(chunk) != 0 {
+		t.Fatalf("expected EOF (empty chunk), got %q", chunk)
+	}
+}
+
+func TestStreamReadsLargeBodyIncrementally(t *testing.T) {
+	const bodySize = 4 * 1024 * 1024
+	mux := http.NewServeMux()
+	mux.HandleFunc("/large", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		block := bytes.Repeat([]byte{0xAB}, 64*1024)
+		for written := 0; written < bodySize; written += len(block) {
+			w.Write(block)
+		}
+	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	info := openTestStream(t, srv.URL+"/large")
+	defer CloseStream(info.Id)
+
+	// Read with a small bounded buffer; the body must be consumed in pieces,
+	// never accumulated into a single []byte.
+	const maxChunk = 64 * 1024
+	var total int
+	seen := map[int]bool{}
+	for {
+		chunk, err := ReadChunk(info.Id, maxChunk)
+		if err != nil {
+			t.Fatalf("ReadChunk: %v", err)
+		}
+		if len(chunk) == 0 {
+			break
+		}
+		if len(chunk) > maxChunk {
+			t.Fatalf("chunk of %d bytes exceeds the requested max", len(chunk))
+		}
+		seen[len(chunk)] = true
+		total += len(chunk)
+	}
+	if total != bodySize {
+		t.Fatalf("total bytes = %d, want %d", total, bodySize)
+	}
+	if len(seen) != 1 {
+		t.Fatalf("expected uniformly sized chunks, saw sizes %v", seen)
+	}
+}
+
+func TestStreamHTTPErrorPreservesStatus(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/missing", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNotFound)
+		w.Write([]byte("nope"))
+	})
+	mux.HandleFunc("/broken", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+		w.Write([]byte("boom"))
+	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	for _, tc := range []struct {
+		path string
+		want int
+	}{
+		{"/missing", http.StatusNotFound},
+		{"/broken", http.StatusInternalServerError},
+	} {
+		info := openTestStream(t, srv.URL+tc.path)
+		if info.StatusCode != tc.want {
+			t.Fatalf("%s: StatusCode = %d, want %d", tc.path, info.StatusCode, tc.want)
+		}
+		if err := CloseStream(info.Id); err != nil {
+			t.Fatalf("CloseStream: %v", err)
+		}
+	}
+}
+
+func TestStreamTransportErrorIsReturned(t *testing.T) {
+	// A dial to a closed port must surface as a transport error on Open.
+	_, err := openHttpStream("http://127.0.0.1:1/clip", 500, nil, dialReal)
+	if err == nil {
+		t.Fatal("openHttpStream to a closed port must return an error")
+	}
+}
+
+func TestOpenHttpStreamRequiresRunningNode(t *testing.T) {
+	if _, err := OpenHttpStream("http://frigate:5000/api/events/x/clip.mp4", 1000); err == nil {
+		t.Fatal("OpenHttpStream must fail when the node is not running")
+	}
+}
+
+func TestReadChunkInvalidArguments(t *testing.T) {
+	if _, err := ReadChunk(12345, 100); err == nil {
+		t.Fatal("ReadChunk with an unknown id must error")
+	}
+	if _, err := ReadChunk(0, -1); err == nil {
+		t.Fatal("ReadChunk with a negative max must error")
+	}
+}
+
+func TestCloseStreamIsIdempotent(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/clip", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte("x"))
+	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	info := openTestStream(t, srv.URL+"/clip")
+	if err := CloseStream(info.Id); err != nil {
+		t.Fatalf("first CloseStream: %v", err)
+	}
+	if err := CloseStream(info.Id); err != nil {
+		t.Fatalf("second CloseStream must be idempotent: %v", err)
+	}
+	if err := CloseStream(999999); err != nil {
+		t.Fatalf("CloseStream of an unknown stream must be a no-op: %v", err)
+	}
+}
+
+func TestStreamReadAfterCloseErrorsControlled(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/clip", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte("x"))
+	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	info := openTestStream(t, srv.URL+"/clip")
+	if err := CloseStream(info.Id); err != nil {
+		t.Fatal(err)
+	}
+	// After Close the stream is deregistered; a read reports a controlled error
+	// rather than blocking or reading garbage.
+	if _, err := ReadChunk(info.Id, 100); err == nil {
+		t.Fatal("ReadChunk after CloseStream must report a controlled error")
+	}
+}
+
+func TestStreamCloseUnblocksPendingRead(t *testing.T) {
+	release := make(chan struct{})
+	mux := http.NewServeMux()
+	mux.HandleFunc("/block", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte("first"))
+		w.(http.Flusher).Flush()
+		<-release // hold the connection open without sending more data
+	})
+	srv := httptest.NewServer(mux)
+	defer func() { close(release) }()
+
+	info := openTestStream(t, srv.URL+"/block")
+	first, err := ReadChunk(info.Id, 1024)
+	if err != nil || string(first) != "first" {
+		t.Fatalf("first chunk = %q, err = %v", first, err)
+	}
+
+	done := make(chan error, 1)
+	go func() {
+		_, err := ReadChunk(info.Id, 1024) // blocks on the server
+		done <- err
+	}()
+	time.Sleep(100 * time.Millisecond) // let the read block
+
+	if err := CloseStream(info.Id); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-done:
+		// The pending read must have been unblocked by CloseStream.
+	case <-time.After(5 * time.Second):
+		t.Fatal("pending read was not unblocked by CloseStream")
+	}
+}
+
+func TestStreamConcurrentReadsAreSerialized(t *testing.T) {
+	const bodySize = 64 * 1024
+	mux := http.NewServeMux()
+	mux.HandleFunc("/data", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		w.Write(bytes.Repeat([]byte{0x42}, bodySize))
+	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	info := openTestStream(t, srv.URL+"/data")
+	defer CloseStream(info.Id)
+
+	const readers = 4
+	var total atomic.Int64
+	var wg sync.WaitGroup
+	for i := 0; i < readers; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for {
+				chunk, err := ReadChunk(info.Id, 4096)
+				if err != nil {
+					return // stream closed concurrently is out of scope here
+				}
+				if len(chunk) == 0 {
+					return
+				}
+				for _, b := range chunk {
+					if b != 0x42 {
+						t.Error("corrupted byte in concurrent read")
+						return
+					}
+				}
+				total.Add(int64(len(chunk)))
+			}
+		}()
+	}
+	wg.Wait()
+	if total.Load() != bodySize {
+		t.Fatalf("concurrent reads produced %d bytes, want %d", total.Load(), bodySize)
 	}
 }

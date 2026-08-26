@@ -441,6 +441,189 @@ func HttpGetBytes(url string, timeoutMs int64) (*HttpResult, error) {
 	return httpResultFromResponse(resp)
 }
 
+// HttpStreamInfo describes an open HTTP stream. The caller keeps the [Id] and
+// reads the body incrementally with [ReadChunk] until [CloseStream]; the body
+// is never buffered whole.
+type HttpStreamInfo struct {
+	Id          int64
+	StatusCode  int
+	ContentType string
+	FinalURL    string
+}
+
+// httpStream is one open streaming response. Reads are serialized by a mutex
+// so concurrent ReadChunk calls cannot interleave or corrupt each other;
+// Close cancels the request context and closes the body WITHOUT holding the
+// mutex, so a pending Read unblocks and returns an error instead of
+// deadlocking.
+type httpStream struct {
+	mu     sync.Mutex
+	resp   *http.Response
+	cancel context.CancelFunc
+	closed atomic.Bool
+}
+
+var (
+	streamsMu    sync.Mutex
+	streams      = map[int64]*httpStream{}
+	nextStreamID atomic.Int64
+)
+
+// OpenHttpStream performs an HTTP GET over the embedded tailnet and returns a
+// handle to the open response without reading the body. The body stays
+// incremental for the whole playback: a connect timeout bounds the dial, but
+// the request context carries no deadline, so a large clip can be consumed
+// progressively. The node must already be Running.
+func OpenHttpStream(url string, connectTimeoutMs int64) (*HttpStreamInfo, error) {
+	mu.Lock()
+	s, running := server, started
+	mu.Unlock()
+	if s == nil || !running {
+		return nil, errors.New("tsembed: node not running")
+	}
+	return openHttpStream(url, connectTimeoutMs, s, func(dctx context.Context, ip netip.Addr, port int) (net.Conn, error) {
+		return dialNetstackTCP(dctx, s, ip, port)
+	})
+}
+
+// openHttpStream performs the request and registers the stream. [dial] is
+// injectable so tests can exercise the whole flow against a local server
+// without a running node.
+func openHttpStream(url string, connectTimeoutMs int64, s *tsnet.Server, dial func(ctx context.Context, ip netip.Addr, port int) (net.Conn, error)) (*HttpStreamInfo, error) {
+	// Cancel-only context: the response body may remain open for the whole
+	// playback. The connect timeout is enforced at the dial layer below.
+	ctx, cancel := context.WithCancel(context.Background())
+	fail := func(err error) (*HttpStreamInfo, error) {
+		cancel()
+		return nil, err
+	}
+
+	u, err := urlpkg.Parse(url)
+	if err != nil {
+		return fail(fmt.Errorf("tsembed: parse url: %w", err))
+	}
+	host := u.Hostname()
+	port := u.Port()
+	if port == "" {
+		if u.Scheme == "https" {
+			port = "443"
+		} else {
+			port = "80"
+		}
+	}
+	portNum, err := strconv.Atoi(port)
+	if err != nil || portNum < 1 || portNum > 65535 {
+		return fail(fmt.Errorf("tsembed: invalid port %q", port))
+	}
+
+	ip, err := resolveHost(ctx, s, host)
+	if err != nil {
+		return fail(err)
+	}
+
+	client := newClient(func(dctx context.Context, network, _ string) (net.Conn, error) {
+		dialCtx, dialCancel := context.WithTimeout(dctx, time.Duration(connectTimeoutMs)*time.Millisecond)
+		defer dialCancel()
+		return dial(dialCtx, ip, portNum)
+	})
+
+	resp, err := doGet(ctx, client, u, host)
+	if err != nil {
+		return fail(err)
+	}
+
+	st := &httpStream{resp: resp, cancel: cancel}
+	id := nextStreamID.Add(1)
+	streamsMu.Lock()
+	streams[id] = st
+	streamsMu.Unlock()
+
+	finalURL := ""
+	if resp.Request != nil && resp.Request.URL != nil {
+		finalURL = resp.Request.URL.String()
+	}
+	return &HttpStreamInfo{
+		Id:          id,
+		StatusCode:  resp.StatusCode,
+		ContentType: resp.Header.Get("Content-Type"),
+		FinalURL:    finalURL,
+	}, nil
+}
+
+// ReadChunk reads up to max bytes from the stream identified by [id]. EOF is
+// reported as an empty chunk (zero-length slice, no error), never as an
+// exception across the gomobile boundary. Reads are serialized per stream.
+func ReadChunk(id int64, max int) ([]byte, error) {
+	if max < 0 {
+		return nil, errors.New("tsembed: invalid chunk size")
+	}
+	st := lookupStream(id)
+	if st == nil {
+		return nil, errors.New("tsembed: unknown stream")
+	}
+	if max == 0 {
+		return []byte{}, nil
+	}
+	buf := make([]byte, max)
+	n, err := st.read(buf)
+	if n > 0 {
+		// Return whatever was read even if the read also reported EOF: Go
+		// readers may deliver the final bytes together with io.EOF.
+		return buf[:n], nil
+	}
+	if err == io.EOF {
+		return []byte{}, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return []byte{}, nil
+}
+
+// CloseStream closes the stream identified by [id] and releases its resources.
+// Idempotent: closing an unknown or already-closed stream is a no-op.
+func CloseStream(id int64) error {
+	streamsMu.Lock()
+	st, ok := streams[id]
+	if ok {
+		delete(streams, id)
+	}
+	streamsMu.Unlock()
+	if !ok {
+		return nil
+	}
+	st.close()
+	return nil
+}
+
+func lookupStream(id int64) *httpStream {
+	streamsMu.Lock()
+	st, ok := streams[id]
+	streamsMu.Unlock()
+	if !ok {
+		return nil
+	}
+	return st
+}
+
+func (st *httpStream) read(buf []byte) (int, error) {
+	st.mu.Lock()
+	defer st.mu.Unlock()
+	if st.closed.Load() {
+		return 0, io.EOF
+	}
+	return st.resp.Body.Read(buf)
+}
+
+func (st *httpStream) close() {
+	if st.closed.CompareAndSwap(false, true) {
+		st.cancel()
+		if st.resp != nil {
+			st.resp.Body.Close()
+		}
+	}
+}
+
 // newClient builds an http.Client whose transport dials with the given
 // DialContext. Production dials through netstack (the tunnel); tests inject a
 // standard dialer.

@@ -11,6 +11,9 @@ sealed interface PlaybackStatus {
     /** Playback is active. */
     data object Playing : PlaybackStatus
 
+    /** Playback reached the end of the media. */
+    data object Ended : PlaybackStatus
+
     /**
      * Playback failed; [message] is safe to display. [statusCode] is the HTTP
      * status of the response when the failure reached the server (null for

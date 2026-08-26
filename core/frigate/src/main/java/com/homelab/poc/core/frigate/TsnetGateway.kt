@@ -1,6 +1,7 @@
 package com.homelab.poc.core.frigate
 
 import com.homelab.poc.core.connectivity.HttpBytesResult
+import com.homelab.poc.core.connectivity.HttpStream
 
 /**
  * Application-facing gateway to the embedded Tailscale node. Kept as an
@@ -54,6 +55,21 @@ interface TsnetGateway {
      *   not thrown.
      */
     suspend fun httpGetBytes(url: String, timeoutMs: Long): HttpBytesResult
+
+    /**
+     * Opens an HTTP GET exclusively over the tsnet network as a progressive
+     * [HttpStream]. Same transport policy as [httpGetBytes]: never falls back
+     * to the normal Android network. A non-2xx status is returned, not thrown.
+     *
+     * [connectTimeoutMs] bounds establishing the connection and reading the
+     * response headers; the body may remain open for the whole playback.
+     *
+     * Implementations that do not support progressive streams inherit a
+     * failing default, so test doubles of [TsnetGateway] are not forced to
+     * model streaming until a test actually exercises it.
+     */
+    suspend fun httpOpenStream(url: String, connectTimeoutMs: Long): HttpStream =
+        throw UnsupportedOperationException("TsnetGateway.httpOpenStream is not supported")
 }
 
 /** Raised when the embedded node needs interactive enrollment to proceed. */
