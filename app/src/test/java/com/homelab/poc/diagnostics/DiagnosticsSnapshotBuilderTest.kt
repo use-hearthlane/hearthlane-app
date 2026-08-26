@@ -19,6 +19,7 @@ class DiagnosticsSnapshotBuilderTest {
             transportSwitchCount = 1,
             playback = PlaybackSnapshot(),
             appVersion = "0.1.0",
+            nodeHostname = "hearthlane-abc12345",
         )
 
         assertEquals("Connected (TAILSCALE)", snapshot.frigateConnectivity)
@@ -26,6 +27,7 @@ class DiagnosticsSnapshotBuilderTest {
         assertEquals("TAILSCALE", snapshot.transport)
         assertEquals("0.17.1", snapshot.serverVersion)
         assertEquals("0.1.0", snapshot.appVersion)
+        assertEquals("hearthlane-abc12345", snapshot.nodeHostname)
     }
 
     @Test
@@ -37,6 +39,7 @@ class DiagnosticsSnapshotBuilderTest {
             transportSwitchCount = 0,
             playback = PlaybackSnapshot(),
             appVersion = "0.1.0",
+            nodeHostname = "hearthlane-abc12345",
         )
 
         assertEquals("Connected (LOCAL)", snapshot.frigateConnectivity)
@@ -56,6 +59,7 @@ class DiagnosticsSnapshotBuilderTest {
             transportSwitchCount = 0,
             playback = PlaybackSnapshot(),
             appVersion = "0.1.0",
+            nodeHostname = "hearthlane-abc12345",
         )
 
         assertEquals("Failed", snapshot.frigateConnectivity)
@@ -71,6 +75,7 @@ class DiagnosticsSnapshotBuilderTest {
             transportSwitchCount = 0,
             playback = PlaybackSnapshot(),
             appVersion = "0.1.0",
+            nodeHostname = "hearthlane-abc12345",
         )
 
         assertEquals("failed", snapshot.tailscaleState)
@@ -85,6 +90,7 @@ class DiagnosticsSnapshotBuilderTest {
             transportSwitchCount = 0,
             playback = PlaybackSnapshot(),
             appVersion = "0.1.0",
+            nodeHostname = "hearthlane-abc12345",
         )
 
         assertEquals("connecting", snapshot.frigateConnectivity)
@@ -100,6 +106,7 @@ class DiagnosticsSnapshotBuilderTest {
             transportSwitchCount = 0,
             playback = PlaybackSnapshot(),
             appVersion = "0.1.0",
+            nodeHostname = "hearthlane-abc12345",
         )
 
         assertEquals("Disconnected", snapshot.frigateConnectivity)
@@ -124,6 +131,7 @@ class DiagnosticsSnapshotBuilderTest {
                 recoveryCount = 2,
             ),
             appVersion = "0.1.0",
+            nodeHostname = "hearthlane-abc12345",
         )
 
         assertEquals(2, snapshot.transportSwitchCount)
@@ -148,6 +156,7 @@ class DiagnosticsSnapshotBuilderTest {
             transportSwitchCount = 0,
             playback = PlaybackSnapshot(lastError = "session expired: https://login.tailscale.com/a/abc123XYZ"),
             appVersion = "0.1.0",
+            nodeHostname = "hearthlane-abc12345",
         )
 
         val report = DiagnosticsReport.build(snapshot)

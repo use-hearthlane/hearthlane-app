@@ -32,6 +32,7 @@ import com.homelab.poc.controller.EventDetailController
 import com.homelab.poc.controller.FrigateConnectionController
 import com.homelab.poc.controller.PlaybackSnapshotStore
 import com.homelab.poc.controller.RecentEventsController
+import com.homelab.poc.controller.SettingsController
 import com.homelab.poc.core.frigate.Camera
 import com.homelab.poc.core.frigate.CameraDiscoveryState
 import com.homelab.poc.core.frigate.FrigateConfig
@@ -221,17 +222,33 @@ fun AppRoot(
                 )
             }
             Screen.Settings -> {
+                val settingsController = remember(settings, controller) {
+                    SettingsController(
+                        serverUrl = settings.baseUrl,
+                        connection = controller.connection,
+                        connecting = controller.connecting,
+                        autoPlayEventClips = settings.autoPlayEventClips,
+                        appVersion = BuildConfig.VERSION_NAME,
+                        appBuild = BuildConfig.VERSION_CODE.toString(),
+                        resetRemoteAccessAction = { controller.resetTailscale() },
+                        setAutoPlayEventClipsAction = { enabled ->
+                            settings.setAutoPlayEventClips(enabled)
+                        },
+                        scope = scope,
+                    )
+                }
+                DisposableEffect(settingsController) {
+                    onDispose { settingsController.release() }
+                }
                 SettingsScreen(
-                    nodeHostname = AppSettings.nodeHostname(nodeSuffix),
-                    appVersion = BuildConfig.VERSION_NAME,
-                    appBuild = BuildConfig.VERSION_CODE.toString(),
+                    controller = settingsController,
                     onOpenServerSettings = { navigation.navigateTo(Screen.Setup) },
                     onOpenDiagnostics = { navigation.navigateTo(Screen.Diagnostics) },
-                    onResetTailscale = {
-                        // Clears the node identity, then opens the server-settings
-                        // screen so the administrator can test the connection and
-                        // complete the interactive re-enrollment.
-                        controller.resetTailscale()
+                    onReconfigureRemoteAccess = {
+                        // Clears the remote-access identity, then opens the
+                        // server screen so the interactive re-registration can
+                        // be completed.
+                        settingsController.resetRemoteAccess()
                         navigation.navigateTo(Screen.Setup)
                     },
                     onBack = { navigation.navigateBack() },
@@ -249,6 +266,7 @@ fun AppRoot(
                     controller = controller,
                     playbackSnapshot = playbackSnapshot,
                     appVersion = BuildConfig.VERSION_NAME,
+                    nodeHostname = AppSettings.nodeHostname(nodeSuffix),
                     onRetryConnection = { controller.connect(restartPlayback = false) },
                     onBack = { navigation.navigateBack() },
                 )
@@ -345,6 +363,7 @@ fun AppRoot(
                                 baseUrl = { baseUrl },
                                 getter = streamGetter,
                                 clipUrl = { eventsApi.clipUrl(baseUrl, screen.eventId) },
+                                autoPlayEventClips = { settings.autoPlayEventClips.value },
                                 scope = scope,
                             )
                         }

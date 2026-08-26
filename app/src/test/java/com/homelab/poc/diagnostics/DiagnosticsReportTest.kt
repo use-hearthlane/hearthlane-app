@@ -19,6 +19,7 @@ class DiagnosticsReportTest {
         errorCount = 3,
         bytesTransferred = 123456,
         recoveryCount = 1,
+        nodeHostname = "hearthlane-abc12345",
     )
 
     @Test
@@ -34,6 +35,7 @@ class DiagnosticsReportTest {
         assertTrue(report.contains("Last playback error: none"))
         assertTrue(report.contains("Time to first frame: 1500 ms"))
         assertTrue(report.contains("Server version: 0.17.1-416a9b7"))
+        assertTrue(report.contains("Node hostname: hearthlane-abc12345"))
         assertTrue(report.contains("Diagnostics: errors 3, bytes 123456, recoveries 1"))
     }
 

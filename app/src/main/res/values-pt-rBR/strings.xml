@@ -41,22 +41,28 @@
     <string name="back_button">Voltar</string>
     <string name="refresh_button">Atualizar câmeras</string>
 
-    <!-- Settings / Advanced (administrator-facing) -->
+    <!-- Settings (product-facing) -->
     <string name="settings_screen_title">Configurações</string>
-    <string name="settings_app_info_title">Informações do aplicativo</string>
     <string name="settings_app_version">Versão %1$s</string>
     <string name="settings_app_build">Build %1$s</string>
-    <string name="settings_advanced_title">Avançado</string>
-    <string name="settings_tailscale_title">Tailscale</string>
-    <string name="settings_node_hostname">Hostname do nó: %1$s</string>
-    <string name="settings_admin_title">Administrador</string>
-    <string name="settings_server_row">Configurações do servidor</string>
-    <string name="settings_diagnostics_row">Diagnóstico</string>
-    <string name="settings_reset_tailscale">Redefinir nó Tailscale</string>
-    <string name="settings_reset_confirm_title">Redefinir nó Tailscale?</string>
-    <string name="settings_reset_confirm_body">Isso limpa a identidade do nó. O próximo teste de conexão cadastrará este dispositivo novamente antes de acessar seu servidor fora da rede doméstica.</string>
-    <string name="confirm_button">Redefinir</string>
     <string name="cancel_button">Cancelar</string>
+
+    <string name="settings_section_server">Servidor</string>
+    <string name="settings_server_address">Endereço do servidor</string>
+    <string name="settings_connection_connected">Conectado</string>
+    <string name="settings_connection_connecting">Conectando…</string>
+    <string name="settings_connection_unavailable">Indisponível</string>
+
+    <string name="settings_section_access">Acesso remoto</string>
+    <string name="settings_remote_access_reconfigure">Reconfigurar acesso remoto</string>
+    <string name="settings_reconfigure_confirm_title">Reconfigurar acesso remoto?</string>
+    <string name="settings_reconfigure_confirm_body">Seu dispositivo será cadastrado novamente para acessar seu servidor fora da rede doméstica. Isso não exclui nenhum dado.</string>
+    <string name="settings_reconfigure_confirm_button">Reconfigurar</string>
+
+    <string name="settings_section_about">Sobre</string>
+
+    <string name="settings_section_playback">Reprodução</string>
+    <string name="settings_autoplay_event_clips">Reproduzir clipes automaticamente</string>
 
     <!-- Diagnostics (administrator-facing) -->
     <string name="diagnostics_title">Diagnóstico</string>
@@ -106,6 +112,7 @@
     <string name="event_detail_time">Horário</string>
     <string name="event_detail_duration">Duração</string>
     <string name="event_detail_zones">Zonas</string>
+    <string name="event_detail_play_clip">Reproduzir evento</string>
 
     <!-- Event date/time formats (Portuguese, Brazil) -->
     <string name="event_time_format">"d 'de' MMM, HH:mm"</string>

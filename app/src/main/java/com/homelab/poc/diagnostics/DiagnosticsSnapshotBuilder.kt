@@ -18,6 +18,7 @@ fun buildDiagnosticsSnapshot(
     transportSwitchCount: Int,
     playback: PlaybackSnapshot,
     appVersion: String,
+    nodeHostname: String,
 ): DiagnosticsReport.Snapshot {
     val connected = connection as? FrigateConnection.Connected
     return DiagnosticsReport.Snapshot(
@@ -33,6 +34,7 @@ fun buildDiagnosticsSnapshot(
         errorCount = playback.errorCount,
         bytesTransferred = playback.bytesTransferred,
         recoveryCount = playback.recoveryCount,
+        nodeHostname = nodeHostname,
     )
 }
 

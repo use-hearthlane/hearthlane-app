@@ -52,6 +52,7 @@ fun DiagnosticsScreen(
     controller: FrigateConnectionController,
     playbackSnapshot: PlaybackSnapshot,
     appVersion: String,
+    nodeHostname: String,
     onRetryConnection: () -> Unit,
     onBack: () -> Unit,
 ) {
@@ -67,6 +68,7 @@ fun DiagnosticsScreen(
         transportSwitchCount,
         playbackSnapshot,
         appVersion,
+        nodeHostname,
     ) {
         DiagnosticsReport.build(
             buildDiagnosticsSnapshot(
@@ -76,6 +78,7 @@ fun DiagnosticsScreen(
                 transportSwitchCount = transportSwitchCount,
                 playback = playbackSnapshot,
                 appVersion = appVersion,
+                nodeHostname = nodeHostname,
             ),
         )
     }

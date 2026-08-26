@@ -38,22 +38,28 @@
     <string name="back_button">Back</string>
     <string name="refresh_button">Refresh cameras</string>
 
-    <!-- Settings / Advanced (V1.5, administrator-facing) -->
+    <!-- Settings (product-facing) -->
     <string name="settings_screen_title">Settings</string>
-    <string name="settings_app_info_title">App information</string>
     <string name="settings_app_version">Version %1$s</string>
     <string name="settings_app_build">Build %1$s</string>
-    <string name="settings_advanced_title">Advanced</string>
-    <string name="settings_tailscale_title">Tailscale</string>
-    <string name="settings_node_hostname">Node hostname: %1$s</string>
-    <string name="settings_admin_title">Administrator</string>
-    <string name="settings_server_row">Server settings</string>
-    <string name="settings_diagnostics_row">Diagnostics</string>
-    <string name="settings_reset_tailscale">Reset Tailscale node</string>
-    <string name="settings_reset_confirm_title">Reset Tailscale node?</string>
-    <string name="settings_reset_confirm_body">This clears the node identity. The next connection test will enroll this device again before it can reach your home server outside the home network.</string>
-    <string name="confirm_button">Reset</string>
     <string name="cancel_button">Cancel</string>
+
+    <string name="settings_section_server">Server</string>
+    <string name="settings_server_address">Server address</string>
+    <string name="settings_connection_connected">Connected</string>
+    <string name="settings_connection_connecting">Connecting…</string>
+    <string name="settings_connection_unavailable">Unavailable</string>
+
+    <string name="settings_section_access">Remote access</string>
+    <string name="settings_remote_access_reconfigure">Reconfigure remote access</string>
+    <string name="settings_reconfigure_confirm_title">Reconfigure remote access?</string>
+    <string name="settings_reconfigure_confirm_body">Your device will be registered again so you can reach your server from outside your home network. This does not delete any data.</string>
+    <string name="settings_reconfigure_confirm_button">Reconfigure</string>
+
+    <string name="settings_section_about">About</string>
+
+    <string name="settings_section_playback">Playback</string>
+    <string name="settings_autoplay_event_clips">Play event clips automatically</string>
 
     <!-- Diagnostics (V1.5, administrator-facing) -->
     <string name="diagnostics_title">Diagnostics</string>
@@ -103,6 +109,7 @@
     <string name="event_detail_time">Time</string>
     <string name="event_detail_duration">Duration</string>
     <string name="event_detail_zones">Zones</string>
+    <string name="event_detail_play_clip">Play event</string>
 
     <!-- Event date/time formats (family-facing, localized) -->
     <string name="event_time_format">MMM d, HH:mm</string>

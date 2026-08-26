@@ -62,6 +62,7 @@ class EventDetailController(
     private val baseUrl: () -> String,
     getter: HttpStreamGetter,
     clipUrl: () -> String,
+    private val autoPlayEventClips: () -> Boolean,
     private val scope: CoroutineScope,
 ) {
 
@@ -86,11 +87,13 @@ class EventDetailController(
             try {
                 val event = api.event(baseUrl().trim(), eventId)
                 _state.value = EventDetailState.Loaded(event)
-                // Auto-play on open: the recent-events list is the entry point to
-                // an event, so an event with a clip starts playing immediately
-                // (there is no Play button). Playback errors surface separately
-                // through [playbackState].
-                if (event.hasClip) {
+                // Auto-play on open unless the user disabled it: the recent-events
+                // list is the entry point to an event, so an event with a clip
+                // normally starts playing immediately (there is no Play button in
+                // the toolbar). When auto-play is off the screen stays idle until
+                // the user starts playback from the media-area affordance.
+                // Playback errors surface separately through [playbackState].
+                if (event.hasClip && autoPlayEventClips()) {
                     playback.play()
                 }
             } catch (e: CancellationException) {

@@ -63,6 +63,7 @@ class EventDetailScreenTest {
     private fun TestScope.createController(
         getter: HttpBytesGetter,
         streaming: HttpStreamGetter = EmptyStreamGetter(),
+        autoPlayEventClips: Boolean = true,
     ): EventDetailController = EventDetailController(
         context = context,
         api = FrigateEventApi(getter),
@@ -70,6 +71,7 @@ class EventDetailScreenTest {
         baseUrl = { "http://frigate:5000" },
         getter = streaming,
         clipUrl = { "http://frigate:5000/api/events/evt-1/clip.mp4" },
+        autoPlayEventClips = { autoPlayEventClips },
         scope = this,
     )
 
@@ -230,6 +232,65 @@ class EventDetailScreenTest {
 
         composeTestRule.onNodeWithText("Play").assertDoesNotExist()
         composeTestRule.onNodeWithText("Play again").assertDoesNotExist()
+        controller.release()
+    }
+
+    @Test
+    fun `with autoplay disabled a clip event shows the play affordance and no player`() = runTest {
+        val controller = createController(
+            EventGetter(body = clipEvent),
+            autoPlayEventClips = false,
+        )
+
+        composeTestRule.setContent { Screen(controller) }
+        composeTestRule.waitForIdle()
+        loadAndIdle(controller)
+
+        assertTrue(
+            "opening a clip event with autoplay off must stay idle",
+            controller.playbackState.value == PlaybackStatus.Idle,
+        )
+        composeTestRule.onNodeWithContentDescription("Play event").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("event_player_view").assertDoesNotExist()
+        controller.release()
+    }
+
+    @Test
+    fun `tapping the play affordance starts playback`() = runTest {
+        val controller = createController(
+            EventGetter(body = clipEvent),
+            streaming = BlockingStreamGetter(),
+            autoPlayEventClips = false,
+        )
+
+        composeTestRule.setContent { Screen(controller) }
+        composeTestRule.waitForIdle()
+        loadAndIdle(controller)
+
+        composeTestRule.onNodeWithContentDescription("Play event").performClick()
+        composeTestRule.waitForIdle()
+
+        assertTrue(
+            "tapping the affordance must start the embedded player",
+            controller.playbackState.value is PlaybackStatus.Loading,
+        )
+        composeTestRule.onNodeWithTag("event_player_view").assertExists()
+        controller.release()
+    }
+
+    @Test
+    @Config(qualifiers = "pt-rBR")
+    fun `pt-br play affordance uses the localized label`() = runTest {
+        val controller = createController(
+            EventGetter(body = clipEvent),
+            autoPlayEventClips = false,
+        )
+
+        composeTestRule.setContent { Screen(controller) }
+        composeTestRule.waitForIdle()
+        loadAndIdle(controller)
+
+        composeTestRule.onNodeWithContentDescription("Reproduzir evento").assertIsDisplayed()
         controller.release()
     }
 

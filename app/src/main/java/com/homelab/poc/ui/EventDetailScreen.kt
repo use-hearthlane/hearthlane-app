@@ -2,6 +2,8 @@ package com.homelab.poc.ui
 
 import android.annotation.SuppressLint
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -11,11 +13,14 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -28,10 +33,14 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
@@ -211,6 +220,18 @@ private fun EventMediaArea(
                 onAction = onPlay,
             )
 
+        // Playback not started yet (auto-play disabled): show the snapshot as a
+        // tappable content affordance that starts playback on tap.
+        playbackStatus == PlaybackStatus.Idle ->
+            EventSnapshot(
+                event = event,
+                thumbnailFactory = thumbnailFactory,
+                snapshotImageLoader = snapshotImageLoader,
+                baseUrl = baseUrl,
+                playable = true,
+                onPlay = onPlay,
+            )
+
         else ->
             AndroidView(
                 factory = { ctx ->
@@ -242,16 +263,28 @@ private fun EventSnapshot(
     thumbnailFactory: CameraThumbnailModelFactory,
     snapshotImageLoader: ImageLoader,
     baseUrl: String,
+    playable: Boolean = false,
+    onPlay: () -> Unit = {},
 ) {
-    Box(
-        modifier = Modifier
+    val playLabel = stringResource(R.string.event_detail_play_clip)
+    val boxModifier = if (playable) {
+        Modifier
             .fillMaxWidth()
-            .aspectRatio(16f / 9f),
+            .aspectRatio(16f / 9f)
+            .clickable(onClick = onPlay)
+            .semantics { contentDescription = playLabel }
+    } else {
+        Modifier
+            .fillMaxWidth()
+            .aspectRatio(16f / 9f)
+    }
+    Box(
+        modifier = boxModifier,
         contentAlignment = Alignment.Center,
     ) {
         if (event.hasSnapshot) {
             val model = thumbnailFactory.eventSnapshot(event.id, baseUrl)
-            val description = localizedFrigateObjectLabel(event.label)
+            val description = if (playable) null else localizedFrigateObjectLabel(event.label)
             SubcomposeAsyncImage(
                 model = model,
                 imageLoader = snapshotImageLoader,
@@ -272,6 +305,27 @@ private fun EventSnapshot(
         } else {
             SnapshotPlaceholder()
         }
+        if (playable) {
+            PlayOverlay()
+        }
+    }
+}
+
+@Composable
+private fun PlayOverlay() {
+    Box(
+        modifier = Modifier
+            .size(56.dp)
+            .clip(CircleShape)
+            .background(MaterialTheme.colorScheme.scrim.copy(alpha = 0.6f)),
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(
+            imageVector = Icons.Filled.PlayArrow,
+            contentDescription = null,
+            tint = Color.White,
+            modifier = Modifier.size(40.dp),
+        )
     }
 }
 

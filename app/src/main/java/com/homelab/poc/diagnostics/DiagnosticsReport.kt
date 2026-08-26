@@ -29,6 +29,8 @@ object DiagnosticsReport {
         val errorCount: Int,
         val bytesTransferred: Long,
         val recoveryCount: Int,
+        /** Embedded node hostname (internal value, moved from Settings). */
+        val nodeHostname: String,
     )
 
     fun build(snapshot: Snapshot): String = buildString {
@@ -42,6 +44,7 @@ object DiagnosticsReport {
         appendLine("Last playback error: ${snapshot.lastPlaybackError?.let(::sanitize) ?: "none"}")
         appendLine("Time to first frame: ${snapshot.firstFrameElapsedMs?.let { "$it ms" } ?: "n/a"}")
         appendLine("Server version: ${snapshot.serverVersion?.let(::sanitize) ?: "unknown"}")
+        appendLine("Node hostname: ${snapshot.nodeHostname}")
         appendLine(
             "Diagnostics: errors ${snapshot.errorCount}, " +
                 "bytes ${snapshot.bytesTransferred}, recoveries ${snapshot.recoveryCount}",

@@ -113,4 +113,57 @@ class AppSettingsTest {
         assertEquals("http://site.omni.corp", reloaded.baseUrl.value)
         assertEquals(true, reloaded.setupComplete.value)
     }
+
+    @Test
+    fun `auto-play event clips defaults to true on first run`() = runTest {
+        val settings = AppSettings.createForTest(
+            dataStore = dataStore(backgroundScope),
+            defaultBaseUrl = "http://frigate:5000",
+            scope = backgroundScope,
+        )
+
+        settings.ready.first { it }
+
+        assertEquals(
+            "auto-play must keep the existing autoplay behavior for new installs",
+            true,
+            settings.autoPlayEventClips.value,
+        )
+    }
+
+    @Test
+    fun `auto-play preference is persisted across instances`() = runTest {
+        val store = dataStore(backgroundScope)
+        val settings = AppSettings.createForTest(store, "http://default:5000", backgroundScope)
+        settings.ready.first { it }
+        assertEquals(true, settings.autoPlayEventClips.value)
+
+        settings.setAutoPlayEventClips(false)
+
+        val reloaded = AppSettings.createForTest(store, "http://default:5000", backgroundScope)
+        reloaded.ready.first { it }
+        assertEquals(false, reloaded.autoPlayEventClips.value)
+
+        reloaded.setAutoPlayEventClips(true)
+
+        val reloadedAgain = AppSettings.createForTest(store, "http://default:5000", backgroundScope)
+        reloadedAgain.ready.first { it }
+        assertEquals(true, reloadedAgain.autoPlayEventClips.value)
+    }
+
+    @Test
+    fun `auto-play preference does not touch other settings`() = runTest {
+        val store = dataStore(backgroundScope)
+        val settings = AppSettings.createForTest(store, "http://default:5000", backgroundScope)
+        settings.ready.first { it }
+
+        settings.setBaseUrl("http://site.omni.corp")
+        settings.setAutoPlayEventClips(false)
+
+        val reloaded = AppSettings.createForTest(store, "http://default:5000", backgroundScope)
+        reloaded.ready.first { it }
+        assertEquals("http://site.omni.corp", reloaded.baseUrl.value)
+        assertEquals(false, reloaded.autoPlayEventClips.value)
+        assertEquals(false, reloaded.setupComplete.value)
+    }
 }

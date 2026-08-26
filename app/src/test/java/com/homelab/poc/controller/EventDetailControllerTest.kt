@@ -204,6 +204,56 @@ class EventDetailControllerTest {
     }
 
     @Test
+    fun `a clip event does not autoplay when the preference is disabled`() = runTest {
+        val controller = controller(
+            RoutingGetter(body = eventJson(hasClip = true)),
+            scope = backgroundScope,
+            autoPlayEventClips = { false },
+        )
+
+        controller.load()
+        runCurrent()
+
+        assertEquals(
+            "opening a clip event with autoplay off must stay idle",
+            PlaybackStatus.Idle,
+            controller.playbackState.value,
+        )
+    }
+
+    @Test
+    fun `a no-clip event does not autoplay regardless of the preference`() = runTest {
+        val controller = controller(
+            RoutingGetter(body = eventJson(hasClip = false)),
+            scope = backgroundScope,
+            autoPlayEventClips = { false },
+        )
+
+        controller.load()
+        runCurrent()
+
+        assertEquals(PlaybackStatus.Idle, controller.playbackState.value)
+    }
+
+    @Test
+    fun `manual play still starts playback when autoplay is disabled`() {
+        val controller = controller(
+            RoutingGetter(body = eventJson(hasClip = true)),
+            scope = CoroutineScope(Dispatchers.Unconfined),
+            autoPlayEventClips = { false },
+        )
+
+        assertEquals(PlaybackStatus.Idle, controller.playbackState.value)
+        controller.play()
+        assertEquals(
+            "manual Play must start the embedded player even with autoplay off",
+            PlaybackStatus.Loading,
+            controller.playbackState.value,
+        )
+        controller.release()
+    }
+
+    @Test
     fun `play starts playback without navigating`() {
         val controller = controller(RoutingGetter(), scope = CoroutineScope(Dispatchers.Unconfined))
 
@@ -290,6 +340,7 @@ class EventDetailControllerTest {
         getter: HttpBytesGetter,
         streaming: HttpStreamGetter = StreamingGetter(),
         scope: CoroutineScope,
+        autoPlayEventClips: () -> Boolean = { true },
     ): EventDetailController = EventDetailController(
         context = context,
         api = FrigateEventApi(getter),
@@ -297,6 +348,7 @@ class EventDetailControllerTest {
         baseUrl = { "http://frigate:5000" },
         getter = streaming,
         clipUrl = { clipUrl },
+        autoPlayEventClips = autoPlayEventClips,
         scope = scope,
     )
 

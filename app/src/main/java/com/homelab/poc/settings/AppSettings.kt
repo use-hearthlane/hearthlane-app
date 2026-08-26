@@ -54,6 +54,11 @@ class AppSettings(
     private val _setupComplete = MutableStateFlow(false)
     val setupComplete: StateFlow<Boolean> = _setupComplete.asStateFlow()
 
+    /** Whether event clips start playing automatically on the event-detail
+     *  screen. Defaults to true (the pre-preference behavior is autoplay). */
+    private val _autoPlayEventClips = MutableStateFlow(true)
+    val autoPlayEventClips: StateFlow<Boolean> = _autoPlayEventClips.asStateFlow()
+
     init {
         scope.launch {
             val prefs = dataStore.data.first()
@@ -74,6 +79,8 @@ class AppSettings(
 
             _setupComplete.value = prefs[SETUP_COMPLETE] ?: false
 
+            _autoPlayEventClips.value = prefs[AUTO_PLAY_EVENT_CLIPS] ?: true
+
             _ready.value = true
         }
     }
@@ -90,6 +97,12 @@ class AppSettings(
     suspend fun setSetupComplete(complete: Boolean) {
         _setupComplete.value = complete
         dataStore.edit { it[SETUP_COMPLETE] = complete }
+    }
+
+    /** Persists the auto-play preference for event clips. */
+    suspend fun setAutoPlayEventClips(enabled: Boolean) {
+        _autoPlayEventClips.value = enabled
+        dataStore.edit { it[AUTO_PLAY_EVENT_CLIPS] = enabled }
     }
 
     companion object {
@@ -123,5 +136,6 @@ class AppSettings(
         private val BASE_URL = stringPreferencesKey("frigate_base_url")
         private val NODE_SUFFIX = stringPreferencesKey("node_hostname_suffix")
         private val SETUP_COMPLETE = booleanPreferencesKey("setup_complete")
+        private val AUTO_PLAY_EVENT_CLIPS = booleanPreferencesKey("auto_play_event_clips")
     }
 }
