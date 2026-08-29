@@ -4,29 +4,26 @@ plugins {
     alias(libs.plugins.kotlin.compose)
 }
 
-// Frigate destination for the transparent connection strategy. The same URL is
-// used for the home-LAN probe and for the Tailscale probe; on the Tailscale
-// path the hostname resolves through the tailnet DNS (MagicDNS / homelab DNS
-// configured in the Tailscale admin console). Overridable at build time:
-//   ./gradlew -Pfrigate.baseUrl=http://site.omni.corp :app:assembleDebug
-val frigateBaseUrl = (project.findProperty("frigate.baseUrl") as String?) ?: "http://site.omni.corp"
+// Hearthlane environment base domain for the transparent connection strategy.
+// The Frigate and Relay endpoints are derived from it (frigate.hearthlane.* and
+// relay.hearthlane.*) behind the Nginx Proxy Manager border. Overridable at
+// build time:
+//   ./gradlew -Phearthlane.baseDomain=hearthlane.omni.corp :app:assembleDebug
+val hearthlaneBaseDomain =
+    (project.findProperty("hearthlane.baseDomain") as String?) ?: "hearthlane.omni.corp"
 
 android {
-    // Namespace is intentionally kept as the original com.homelab.poc package
-    // tree. Only applicationId (the Android OS / Play Store identity) changes
-    // for V1; refactoring every Kotlin source package and the gomobile Java
-    // package would be a large, risky change with no functional benefit.
-    namespace = "com.homelab.poc"
+    namespace = "org.hearthlane"
     compileSdk = libs.versions.compileSdk.get().toInt()
 
     defaultConfig {
-        applicationId = "com.homelab.hearthlane"
+        applicationId = "org.hearthlane"
         minSdk = libs.versions.minSdk.get().toInt()
         targetSdk = libs.versions.targetSdk.get().toInt()
-        versionCode = 3
+        versionCode = 4
         versionName = "1.2.0"
 
-        buildConfigField("String", "FRIGATE_BASE_URL", "\"$frigateBaseUrl\"")
+        buildConfigField("String", "HEARTHLANE_BASE_DOMAIN", "\"$hearthlaneBaseDomain\"")
     }
 
     signingConfigs {
@@ -129,7 +126,7 @@ tasks.configureEach {
 // non-UI suites.
 tasks.configureEach {
     if (name == "testReleaseUnitTest") {
-        (this as org.gradle.api.tasks.testing.Test).filter { excludeTestsMatching("com.homelab.poc.ui.LiveViewTest") }
+        (this as org.gradle.api.tasks.testing.Test).filter { excludeTestsMatching("org.hearthlane.ui.LiveViewTest") }
     }
 }
 
@@ -143,6 +140,7 @@ dependencies {
     implementation(project(":core:connectivity"))
     implementation(project(":core:frigate"))
     implementation(project(":core:playback"))
+    implementation(project(":core:relay"))
     implementation(project(":native:tailscale"))
 
     implementation(platform(libs.androidx.compose.bom))
@@ -156,7 +154,7 @@ dependencies {
     implementation(libs.media3.exoplayer)
     implementation(libs.media3.ui)
     implementation(libs.coil.compose)
-    implementation(libs.coil.core)
+    implementation(libs.osmdroid)
 
     testImplementation(libs.junit)
     testImplementation(libs.kotlinx.coroutines.test)

@@ -60,7 +60,7 @@ out="$(cd ../build && pwd)/tsembed.aar"
 gomobile bind \
   -target=android/arm64,android/amd64 \
   -androidapi 26 \
-  -javapkg com.homelab.poc \
+  -javapkg org.hearthlane \
   -ldflags="-linkmode=external -extldflags=-Wl,-z,max-page-size=16384" \
   -o "$out" \
   .

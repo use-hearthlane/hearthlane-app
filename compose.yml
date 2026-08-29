@@ -4,9 +4,6 @@ services:
       context: .
       dockerfile: Dockerfile
 
-    image: homelab-app:local
-    container_name: homelab-app
-
     stdin_open: true
     tty: true
 

@@ -7,7 +7,7 @@ plugins {
 // (disconnected, authenticating, connecting, connected, failed). The Kotlin UI
 // must not depend on low-level Tailscale implementation details.
 android {
-    namespace = "com.homelab.poc.core.connectivity"
+    namespace = "org.hearthlane.core.connectivity"
     compileSdk = libs.versions.compileSdk.get().toInt()
 
     defaultConfig {
@@ -28,4 +28,7 @@ kotlin {
 
 dependencies {
     implementation(libs.kotlinx.coroutines.core)
+
+    testImplementation(libs.junit)
+    testImplementation(libs.kotlinx.coroutines.test)
 }

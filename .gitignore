@@ -30,6 +30,7 @@ go-patched/
 # Device log captures (may contain private IPs/hostnames)
 crash.txt
 adb-logcat.txt
+log.txt
 
 # Local build caches (never commit)
 .cache/

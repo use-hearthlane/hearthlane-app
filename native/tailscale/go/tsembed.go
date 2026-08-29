@@ -198,17 +198,18 @@ func Start(hostname, authKey, stateDir string) error {
 	// On Android there is no usable default location for Tailscale's log
 	// state: no $TS_LOGS_DIR/$HOME/cache, cwd is "/", and /tmp does not exist.
 	// logpolicy.LogsDir panics in that situation, so point it at a writable
-	// subdirectory of the node state. Respect an explicitly set value.
+	// subdirectory of the node state. This runs on EVERY Start: the env
+	// variable may already be set from an earlier Start in the same process,
+	// but the directory may have been removed (identity reset), so the log
+	// directory is (re)created deterministically before the node starts.
 	logsDir := filepath.Join(stateDir, "logs")
-	if os.Getenv("TS_LOGS_DIR") == "" {
-		if err := os.MkdirAll(logsDir, 0o700); err != nil {
-			return fmt.Errorf("tsembed: create logs dir: %w", err)
-		}
-		if err := os.Setenv("TS_LOGS_DIR", logsDir); err != nil {
-			return fmt.Errorf("tsembed: set TS_LOGS_DIR: %w", err)
-		}
-		logf("log state dir set to %q", logsDir)
+	if err := os.MkdirAll(logsDir, 0o700); err != nil {
+		return fmt.Errorf("tsembed: create logs dir: %w", err)
 	}
+	if err := os.Setenv("TS_LOGS_DIR", logsDir); err != nil {
+		return fmt.Errorf("tsembed: set TS_LOGS_DIR: %w", err)
+	}
+	logf("log state dir set to %q", logsDir)
 
 	ctx, cancelFn := context.WithCancel(context.Background())
 	s := &tsnet.Server{
@@ -225,6 +226,23 @@ func Start(hostname, authKey, stateDir string) error {
 	logf("start requested: hostname=%q stateDir=%q", hostname, stateDir)
 	go func() {
 		defer close(startDone)
+		// A panic anywhere in the tsnet lifecycle (Start or Close) must become a
+		// controlled Failed state, never an unrecovered panic that SIGABRTs the
+		// process. This is the crash class observed when a second Start follows
+		// a Stop + identity reset in the same Android process.
+		defer func() {
+			if r := recover(); r != nil {
+				logf("lifecycle panic recovered: %v", r)
+				mu.Lock()
+				if server == s {
+					server, cancel, startDone = nil, nil, nil
+					started = false
+					lastErr = fmt.Errorf("tsembed: lifecycle panicked: %v", r)
+				}
+				mu.Unlock()
+				cancelFn()
+			}
+		}()
 		if err := startServer(s); err != nil {
 			// Release every reference to the partial instance so the node
 			// reports Failed and a later Start can begin from a clean slate.
@@ -281,14 +299,14 @@ func cleanupFailedServer(s *tsnet.Server) {
 // finish.
 func Stop() error {
 	mu.Lock()
-	s, done := server, startDone
+	s, done, cancelFn := server, startDone, cancel
 	mu.Unlock()
 	if s == nil {
 		return errors.New("tsembed: not started")
 	}
 	logf("stop requested")
-	if cancel != nil {
-		cancel()
+	if cancelFn != nil {
+		cancelFn()
 	}
 	if done != nil {
 		<-done
@@ -441,6 +459,128 @@ func HttpGetBytes(url string, timeoutMs int64) (*HttpResult, error) {
 	return httpResultFromResponse(resp)
 }
 
+// HttpPut performs an HTTP PUT over the embedded tailnet with the given
+// request body and Content-Type. Same transport policy as HttpGetBytes: the
+// request is made exclusively through the tunnel (never the OS network) and
+// the node must be Running. A non-2xx status is returned, not thrown.
+func HttpPut(url, contentType, body string, timeoutMs int64) (*HttpResult, error) {
+	return HttpRequest(http.MethodPut, url, contentType, "", body, timeoutMs)
+}
+
+// HttpRequest performs an HTTP request over the embedded tailnet with the
+// given method, request body, Content-Type and headers.
+//
+// headersJSON is a flat JSON object mapping header names to values, for
+// example `{"Authorization":"Bearer <token>"}`; an empty string sends no
+// headers. Content-Type is set only when provided, so GET requests that carry
+// no body pass an empty body and contentType.
+//
+// Same transport policy as HttpGetBytes: the request is made exclusively
+// through the tunnel (never the OS network) and the node must be Running. A
+// non-2xx status is returned, not thrown.
+func HttpRequest(method, url, contentType, headersJSON, body string, timeoutMs int64) (*HttpResult, error) {
+	mu.Lock()
+	s, running := server, started
+	mu.Unlock()
+	if s == nil || !running {
+		return nil, errors.New("tsembed: node not running")
+	}
+	return httpRequestInternal(method, url, contentType, headersJSON, body, timeoutMs, s, func(dctx context.Context, ip netip.Addr, port int) (net.Conn, error) {
+		return dialNetstackTCP(dctx, s, ip, port)
+	})
+}
+
+// httpRequestInternal performs the request. [dial] is injectable so tests can
+// exercise the whole flow against a local server without a running node.
+func httpRequestInternal(method, url, contentType, headersJSON, body string, timeoutMs int64, s *tsnet.Server, dial func(ctx context.Context, ip netip.Addr, port int) (net.Conn, error)) (*HttpResult, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(timeoutMs)*time.Millisecond)
+	defer cancel()
+
+	u, err := urlpkg.Parse(url)
+	if err != nil {
+		return nil, fmt.Errorf("tsembed: parse url: %w", err)
+	}
+	host := u.Hostname()
+	port := u.Port()
+	if port == "" {
+		if u.Scheme == "https" {
+			port = "443"
+		} else {
+			port = "80"
+		}
+	}
+
+	ip, err := resolveHost(ctx, s, host)
+	if err != nil {
+		return nil, err
+	}
+
+	portNum, err := strconv.Atoi(port)
+	if err != nil || portNum < 1 || portNum > 65535 {
+		return nil, fmt.Errorf("tsembed: invalid port %q", port)
+	}
+
+	headers, err := parseHeadersJSON(headersJSON)
+	if err != nil {
+		return nil, err
+	}
+
+	client := newClient(func(dctx context.Context, network, _ string) (net.Conn, error) {
+		return dial(dctx, ip, portNum)
+	})
+	resp, err := doRequest(ctx, client, u, host, method, contentType, headers, body)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	return httpResultFromResponse(resp)
+}
+
+// doRequest performs an HTTP request on an already-parsed URL, preserving the
+// Host header (same policy as doGet) and setting the request Content-Type and
+// headers when provided.
+func doRequest(ctx context.Context, client *http.Client, u *urlpkg.URL, host, method, contentType string, headers http.Header, body string) (*http.Response, error) {
+	var reader io.Reader
+	if method != http.MethodGet && body != "" {
+		reader = strings.NewReader(body)
+	}
+	req, err := http.NewRequestWithContext(ctx, method, u.String(), reader)
+	if err != nil {
+		return nil, fmt.Errorf("tsembed: build request: %w", err)
+	}
+	req.Host = host
+	if contentType != "" {
+		req.Header.Set("Content-Type", contentType)
+	}
+	for name, values := range headers {
+		for _, value := range values {
+			req.Header.Add(name, value)
+		}
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("tsembed: %s failed: %w", method, err)
+	}
+	return resp, nil
+}
+
+// parseHeadersJSON decodes a flat JSON header object. Empty input yields an
+// empty header set; malformed JSON is an error.
+func parseHeadersJSON(headersJSON string) (http.Header, error) {
+	headers := http.Header{}
+	if strings.TrimSpace(headersJSON) == "" {
+		return headers, nil
+	}
+	var raw map[string]string
+	if err := json.Unmarshal([]byte(headersJSON), &raw); err != nil {
+		return nil, fmt.Errorf("tsembed: parse headers JSON: %w", err)
+	}
+	for name, value := range raw {
+		headers.Set(name, value)
+	}
+	return headers, nil
+}
+
 // HttpStreamInfo describes an open HTTP stream. The caller keeps the [Id] and
 // reads the body incrementally with [ReadChunk] until [CloseStream]; the body
 // is never buffered whole.
@@ -550,10 +690,26 @@ func openHttpStream(url string, connectTimeoutMs int64, s *tsnet.Server, dial fu
 	}, nil
 }
 
+// ReadResult carries one read from an open stream. [Data] holds the bytes read
+// (empty when no bytes were available) and [EOF] reports that the stream has
+// reached its natural end.
+//
+// Errors are never encoded in the result: a failing read returns a Go error
+// instead, so the gomobile boundary never has to interpret a nil/empty byte
+// slice as an error. This matters because gomobile maps an empty Go slice
+// (len == 0, even non-nil) to a Java null byte[], which would be ambiguous on
+// the Kotlin side; the explicit [EOF] flag removes that ambiguity.
+type ReadResult struct {
+	Data []byte
+	EOF  bool
+}
+
 // ReadChunk reads up to max bytes from the stream identified by [id]. EOF is
-// reported as an empty chunk (zero-length slice, no error), never as an
-// exception across the gomobile boundary. Reads are serialized per stream.
-func ReadChunk(id int64, max int) ([]byte, error) {
+// reported explicitly through [ReadResult.EOF] (never as an error and never as
+// an ambiguous empty slice): a final read that also carries bytes (Go readers
+// may return n > 0 together with io.EOF) delivers the bytes with EOF still
+// false, and EOF is only reported on the following read.
+func ReadChunk(id int64, max int) (*ReadResult, error) {
 	if max < 0 {
 		return nil, errors.New("tsembed: invalid chunk size")
 	}
@@ -562,22 +718,22 @@ func ReadChunk(id int64, max int) ([]byte, error) {
 		return nil, errors.New("tsembed: unknown stream")
 	}
 	if max == 0 {
-		return []byte{}, nil
+		return &ReadResult{Data: []byte{}}, nil
 	}
 	buf := make([]byte, max)
 	n, err := st.read(buf)
 	if n > 0 {
-		// Return whatever was read even if the read also reported EOF: Go
-		// readers may deliver the final bytes together with io.EOF.
-		return buf[:n], nil
+		// Return whatever was read even if the read also reported EOF: the
+		// final bytes must be delivered before EOF is observed.
+		return &ReadResult{Data: buf[:n]}, nil
 	}
 	if err == io.EOF {
-		return []byte{}, nil
+		return &ReadResult{Data: []byte{}, EOF: true}, nil
 	}
 	if err != nil {
 		return nil, err
 	}
-	return []byte{}, nil
+	return &ReadResult{Data: []byte{}}, nil
 }
 
 // CloseStream closes the stream identified by [id] and releases its resources.
@@ -656,6 +812,13 @@ func httpResultFromResponse(resp *http.Response) (*HttpResult, error) {
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return nil, fmt.Errorf("tsembed: read response: %w", err)
+	}
+	if len(body) == 0 {
+		// gomobile maps a Go byte slice with a nil data pointer to Java null
+		// (see go_seq_to_java_bytearray), so an empty HTTP body would surface
+		// as a null getBody() on the Kotlin side and NPE. Make empty bodies
+		// explicitly non-nil so a 204/empty 200 is a ByteArray(0), never null.
+		body = make([]byte, 0)
 	}
 	finalURL := ""
 	if resp.Request != nil && resp.Request.URL != nil {
@@ -969,4 +1132,210 @@ func mustJSON(st status) string {
 		return fmt.Sprintf(`{"state":%q,"error":%q}`, stateFailed, err.Error())
 	}
 	return string(b)
+}
+
+// ---------------------------------------------------------------------------
+// SPIKE (Phase 9.2): HTTP endpoint on the tailnet.
+//
+// Temporary, DEBUG-only capability: lets the embedded node act as an HTTP
+// endpoint on the tailnet so device-to-device request/response flows (for
+// example on-demand location) can be validated. It is additive: it does not
+// change the client primitives (HttpGet/HttpGetBytes/OpenHttpStream) and is
+// not part of the product transport design.
+//
+// Model: the Kotlin side drives one accept loop per endpoint:
+//
+//	id, _  := ListenHTTP(port)      // one-time
+//	loop:  info, _ := AcceptHTTP(id) // blocks until a request head arrives
+//	       RespondHTTP(id, info.Id, status, contentType, body)
+//	CloseHTTPEndpoint(id)            // unblocks AcceptHTTP and frees resources
+//
+// Each request is an independent HTTP exchange; there is no persistent stream.
+// ---------------------------------------------------------------------------
+
+// HTTPRequestInfo describes one accepted HTTP request head.
+type HTTPRequestInfo struct {
+	Id     int64
+	Method string
+	Path   string
+}
+
+// spikeEndpoint is one tailnet HTTP listener plus its in-flight connections.
+type spikeEndpoint struct {
+	ln     net.Listener
+	mu     sync.Mutex
+	conns  map[int64]net.Conn
+	nextID atomic.Int64
+	closed atomic.Bool
+}
+
+var (
+	spikeEndpointsMu sync.Mutex
+	spikeEndpoints   = map[int64]*spikeEndpoint{}
+	spikeNextEpID    atomic.Int64
+)
+
+// ListenHTTP opens a TCP listener on the tailnet at the given port and
+// registers it as an HTTP endpoint. The node must be Running. Returns an
+// endpoint id for use with AcceptHTTP/RespondHTTP/CloseHTTPEndpoint.
+func ListenHTTP(port int64) (int64, error) {
+	mu.Lock()
+	s, running := server, started
+	mu.Unlock()
+	if s == nil || !running {
+		return 0, errors.New("tsembed: node not running")
+	}
+	ln, err := s.Listen("tcp", fmt.Sprintf(":%d", port))
+	if err != nil {
+		return 0, fmt.Errorf("tsembed: listen on tailnet: %w", err)
+	}
+	ep := &spikeEndpoint{ln: ln, conns: map[int64]net.Conn{}}
+	id := spikeNextEpID.Add(1)
+	spikeEndpointsMu.Lock()
+	spikeEndpoints[id] = ep
+	spikeEndpointsMu.Unlock()
+	logf("spike endpoint listening on tailnet port %d (endpoint=%d)", port, id)
+	return id, nil
+}
+
+// AcceptHTTP blocks until a connection is accepted or the endpoint is closed,
+// then reads the HTTP request head (bounded by timeoutMs) and returns it.
+// Closing the endpoint with CloseHTTPEndpoint unblocks a pending AcceptHTTP.
+func AcceptHTTP(endpointID int64, timeoutMs int64) (*HTTPRequestInfo, error) {
+	ep := lookupSpikeEndpoint(endpointID)
+	if ep == nil {
+		return nil, errors.New("tsembed: unknown endpoint")
+	}
+	conn, err := ep.ln.Accept()
+	if err != nil {
+		return nil, err // endpoint closed
+	}
+	if timeoutMs <= 0 {
+		timeoutMs = defaultSpikeHeadTimeoutMs
+	}
+	if err := conn.SetReadDeadline(time.Now().Add(time.Duration(timeoutMs) * time.Millisecond)); err != nil {
+		conn.Close()
+		return nil, err
+	}
+	method, path, err := readSpikeRequestHead(conn)
+	if err != nil {
+		conn.Close()
+		return nil, fmt.Errorf("tsembed: read request head: %w", err)
+	}
+	info := &HTTPRequestInfo{Id: ep.nextID.Add(1), Method: method, Path: path}
+	ep.mu.Lock()
+	ep.conns[info.Id] = conn
+	ep.mu.Unlock()
+	return info, nil
+}
+
+// RespondHTTP writes an HTTP response for a previously accepted request and
+// closes the connection.
+func RespondHTTP(endpointID int64, reqID int64, status int, contentType string, body string) error {
+	ep := lookupSpikeEndpoint(endpointID)
+	if ep == nil {
+		return errors.New("tsembed: unknown endpoint")
+	}
+	ep.mu.Lock()
+	conn, ok := ep.conns[reqID]
+	delete(ep.conns, reqID)
+	ep.mu.Unlock()
+	if !ok {
+		return errors.New("tsembed: unknown request")
+	}
+	defer conn.Close()
+	_ = conn.SetWriteDeadline(time.Now().Add(defaultSpikeResponseTimeout))
+	reason := spikeStatusText(status)
+	if _, err := fmt.Fprintf(conn,
+		"HTTP/1.1 %d %s\r\nContent-Type: %s\r\nContent-Length: %d\r\nConnection: close\r\n\r\n%s",
+		status, reason, contentType, len(body), body); err != nil {
+		return fmt.Errorf("tsembed: write response: %w", err)
+	}
+	return nil
+}
+
+// CloseHTTPEndpoint closes the listener and every in-flight connection,
+// unblocking any pending AcceptHTTP. Idempotent.
+func CloseHTTPEndpoint(endpointID int64) error {
+	spikeEndpointsMu.Lock()
+	ep, ok := spikeEndpoints[endpointID]
+	delete(spikeEndpoints, endpointID)
+	spikeEndpointsMu.Unlock()
+	if !ok {
+		return nil
+	}
+	ep.close()
+	return nil
+}
+
+func lookupSpikeEndpoint(id int64) *spikeEndpoint {
+	spikeEndpointsMu.Lock()
+	defer spikeEndpointsMu.Unlock()
+	return spikeEndpoints[id]
+}
+
+func (ep *spikeEndpoint) close() {
+	if !ep.closed.CompareAndSwap(false, true) {
+		return
+	}
+	ep.ln.Close()
+	ep.mu.Lock()
+	for _, c := range ep.conns {
+		c.Close()
+	}
+	ep.conns = map[int64]net.Conn{}
+	ep.mu.Unlock()
+	logf("spike endpoint closed")
+}
+
+const (
+	defaultSpikeHeadTimeoutMs   = int64(10_000)
+	defaultSpikeResponseTimeout = 10 * time.Second
+	maxSpikeRequestHeadBytes    = 8192
+)
+
+func readSpikeRequestHead(conn net.Conn) (method, path string, err error) {
+	buf := make([]byte, 0, 1024)
+	tmp := make([]byte, 4096)
+	for {
+		n, rerr := conn.Read(tmp)
+		if n > 0 {
+			buf = append(buf, tmp[:n]...)
+			if idx := strings.Index(string(buf), "\r\n\r\n"); idx >= 0 {
+				buf = buf[:idx]
+				break
+			}
+			if len(buf) > maxSpikeRequestHeadBytes {
+				return "", "", errors.New("request head too large")
+			}
+		}
+		if rerr != nil {
+			return "", "", rerr
+		}
+	}
+	firstLine := strings.SplitN(string(buf), "\r\n", 2)[0]
+	parts := strings.SplitN(firstLine, " ", 3)
+	if len(parts) != 3 {
+		return "", "", errors.New("malformed request line")
+	}
+	return parts[0], parts[1], nil
+}
+
+func spikeStatusText(status int) string {
+	switch status {
+	case 200:
+		return "OK"
+	case 403:
+		return "Forbidden"
+	case 404:
+		return "Not Found"
+	case 500:
+		return "Internal Server Error"
+	case 503:
+		return "Service Unavailable"
+	case 504:
+		return "Gateway Timeout"
+	default:
+		return "Status"
+	}
 }

@@ -1,0 +1,228 @@
+package org.hearthlane.diagnostics
+
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
+import org.junit.Test
+
+class DiagnosticsReportTest {
+
+    private val snapshot = DiagnosticsReport.Snapshot(
+        appVersion = "0.1.0",
+        frigateConnectivity = "Connected (TAILSCALE)",
+        relayConnectivity = "Disconnected",
+        tailscaleState = "connected",
+        transport = "TAILSCALE",
+        transportSwitchCount = 2,
+        playbackState = "playing",
+        lastPlaybackError = null,
+        firstFrameElapsedMs = 1500,
+        serverVersion = "0.17.1-416a9b7",
+        errorCount = 3,
+        bytesTransferred = 123456,
+        recoveryCount = 1,
+        nodeHostname = "hearthlane-abc12345",
+        baseDomain = "hearthlane.example",
+    )
+
+    @Test
+    fun `report contains every allow-listed field`() {
+        val report = DiagnosticsReport.build(snapshot)
+
+        assertTrue(report.contains("App version: 0.1.0"))
+        assertTrue(report.contains("Server: hearthlane.example"))
+        assertTrue(report.contains("Frigate endpoint: Connected (TAILSCALE)"))
+        assertTrue(report.contains("Relay endpoint: Disconnected"))
+        assertTrue(report.contains("Tailscale state: connected"))
+        assertTrue(report.contains("Selected transport: TAILSCALE"))
+        assertTrue(report.contains("Transport switches: 2"))
+        assertTrue(report.contains("Playback state: playing"))
+        assertTrue(report.contains("Last playback error: none"))
+        assertTrue(report.contains("Time to first frame: 1500 ms"))
+        assertTrue(report.contains("Server version: 0.17.1-416a9b7"))
+        assertTrue(report.contains("Node hostname: hearthlane-abc12345"))
+        assertTrue(report.contains("Diagnostics: errors 3, bytes 123456, recoveries 1"))
+    }
+
+    @Test
+    fun `auth URL embedded in a playback error is redacted`() {
+        val report = DiagnosticsReport.build(
+            snapshot.copy(lastPlaybackError = "session expired: https://login.tailscale.com/a/abc123XYZ"),
+        )
+
+        assertFalse("the report must never contain the enrollment URL", report.contains("login.tailscale.com"))
+        assertTrue(report.contains("[redacted]"))
+    }
+
+    @Test
+    fun `control-plane URL is redacted`() {
+        val report = DiagnosticsReport.build(
+            snapshot.copy(lastPlaybackError = "backend unreachable: https://controlplane.tailscale.com/admin/xyz"),
+        )
+
+        assertFalse("the report must never contain a tailscale control URL", report.contains("controlplane.tailscale.com"))
+    }
+
+    @Test
+    fun `token-shaped strings are redacted`() {
+        val token = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+        val report = DiagnosticsReport.build(
+            snapshot.copy(lastPlaybackError = "rejected key $token"),
+        )
+
+        assertFalse("the report must never contain token-shaped strings", report.contains(token))
+    }
+
+    @Test
+    fun `short values are not over-redacted`() {
+        val report = DiagnosticsReport.build(snapshot)
+
+        assertTrue("short technical values must survive", report.contains("0.17.1-416a9b7"))
+        assertTrue("short technical values must survive", report.contains("123456"))
+    }
+
+    @Test
+    fun `location section renders every observability field`() {
+        val location = LocationDiagnosticsSnapshot(
+            sharingEnabled = "Yes",
+            foregroundPermission = "Granted",
+            backgroundPermission = "Granted",
+            locationServices = "Enabled",
+            foregroundService = "Running",
+            publisherState = "Waiting",
+            publisherMode = "Background",
+            locationCheckIntervalLabel = "1 min",
+            minPublishIntervalLabel = "30 sec",
+            movementThresholdLabel = "100 m",
+            maxPublishIntervalLabel = "5 min",
+            mapActiveIntervalLabel = "30 sec",
+            lastRead = "16:57:12",
+            lastReadResult = "Success",
+            lastPublishAttempt = "16:57:13",
+            lastPublishResult = "Success",
+            lastSuccessfulPublish = "16:57:13",
+            pendingLocation = "No",
+            relay = "Reachable",
+            deviceId = "hearthlane-ab12cd34",
+            deviceNickname = "Meu celular",
+        )
+        val report = DiagnosticsReport.build(snapshot.copy(location = location))
+
+        assertTrue(report.contains("Location"))
+        assertTrue(report.contains("Sharing enabled: Yes"))
+        assertTrue(report.contains("Foreground permission: Granted"))
+        assertTrue(report.contains("Background permission: Granted"))
+        assertTrue(report.contains("Location services: Enabled"))
+        assertTrue(report.contains("Foreground service: Running"))
+        assertTrue(report.contains("Publisher state: Waiting"))
+        assertTrue(report.contains("Publisher mode: Background"))
+        assertTrue(report.contains("Location check interval: 1 min"))
+        assertTrue(report.contains("Minimum publish interval: 30 sec"))
+        assertTrue(report.contains("Movement threshold: 100 m"))
+        assertTrue(report.contains("Maximum publish interval: 5 min"))
+        assertTrue(report.contains("Map-active interval: 30 sec"))
+        assertTrue(report.contains("Last location read: 16:57:12 (Success)"))
+        assertTrue(report.contains("Last publish attempt: 16:57:13"))
+        assertTrue(report.contains("Last publish result: Success"))
+        assertTrue(report.contains("Last successful publish: 16:57:13"))
+        assertTrue(report.contains("Pending location: No"))
+        assertTrue(report.contains("Relay: Reachable"))
+        assertTrue(report.contains("Device ID: hearthlane-ab12cd34"))
+        assertTrue(report.contains("Device nickname: Meu celular"))
+    }
+
+    @Test
+    fun `location section reports never when nothing was published`() {
+        val location = LocationDiagnosticsSnapshot(
+            sharingEnabled = "Yes",
+            foregroundPermission = "Granted",
+            backgroundPermission = "Denied",
+            locationServices = "Enabled",
+            foregroundService = "Stopped",
+            publisherState = "Idle",
+            publisherMode = "Disabled",
+            locationCheckIntervalLabel = "1 min",
+            minPublishIntervalLabel = "30 sec",
+            movementThresholdLabel = "100 m",
+            maxPublishIntervalLabel = "5 min",
+            mapActiveIntervalLabel = "30 sec",
+            lastRead = null,
+            lastReadResult = null,
+            lastPublishAttempt = null,
+            lastPublishResult = null,
+            lastSuccessfulPublish = null,
+            pendingLocation = "No",
+            relay = "Unknown",
+            deviceId = "hearthlane-ab12cd34",
+            deviceNickname = "(unset)",
+        )
+        val report = DiagnosticsReport.build(snapshot.copy(location = location))
+
+        assertTrue(report.contains("Last location read: Never"))
+        assertTrue(report.contains("Last publish attempt: Never"))
+        assertTrue(report.contains("Last successful publish: Never"))
+        assertTrue(report.contains("Publisher mode: Disabled"))
+    }
+
+    @Test
+    fun `location report never contains coordinates or payload`() {
+        val location = LocationDiagnosticsSnapshot(
+            sharingEnabled = "Yes",
+            foregroundPermission = "Granted",
+            backgroundPermission = "Granted",
+            locationServices = "Enabled",
+            foregroundService = "Running",
+            publisherState = "Error",
+            publisherMode = "Background",
+            locationCheckIntervalLabel = "1 min",
+            minPublishIntervalLabel = "30 sec",
+            movementThresholdLabel = "100 m",
+            maxPublishIntervalLabel = "5 min",
+            mapActiveIntervalLabel = "30 sec",
+            lastRead = "16:57:12",
+            lastReadResult = "Success",
+            lastPublishAttempt = "16:57:13",
+            lastPublishResult = "HTTP 5xx",
+            lastSuccessfulPublish = null,
+            pendingLocation = "No",
+            relay = "Unreachable",
+            deviceId = "hearthlane-ab12cd34",
+            deviceNickname = "Meu celular",
+        )
+        val report = DiagnosticsReport.build(snapshot.copy(location = location))
+
+        assertFalse(report.contains("latitude"))
+        assertFalse(report.contains("longitude"))
+        assertFalse(report.contains("recordedAtEpochMs"))
+        assertFalse(report.contains("accuracy"))
+        assertFalse(report.contains("Authorization"))
+        assertFalse(report.contains("Bearer"))
+    }
+
+    @Test
+    fun `sanitize handles mixed content`() {
+        val cleaned = DiagnosticsReport.sanitize(
+            "warn: https://login.tailscale.com/a/abc; token=AAAABBBBCCCCDDDDEEEEFFFF; fine",
+        )
+
+        assertFalse(cleaned.contains("login.tailscale.com"))
+        assertFalse(cleaned.contains("AAAABBBBCCCCDDDDEEEEFFFF"))
+        assertTrue(cleaned.contains("fine"))
+    }
+
+    @Test
+    fun `sanitize is accessible as public API for clipboard sanitization`() {
+        // Validates that DiagnosticsReport.sanitize can be called from any
+        // module (SetupScreen uses it for clipboard copy).
+        val raw = "error: Tailscale requires authentication https://login.tailscale.com/a/secret123"
+        val sanitized = DiagnosticsReport.sanitize(raw)
+
+        assertFalse(
+            "sanitize must remove the auth URL",
+            sanitized.contains("login.tailscale.com"),
+        )
+        assertTrue(
+            "non-sensitive content must survive sanitization",
+            sanitized.contains("Tailscale requires authentication"),
+        )
+    }
+}

@@ -8,7 +8,7 @@ plugins {
 // behind this boundary so alternatives can be swapped without rewriting the
 // UI. No Frigate-specific code here.
 android {
-    namespace = "com.homelab.poc.core.playback"
+    namespace = "org.hearthlane.core.playback"
     compileSdk = libs.versions.compileSdk.get().toInt()
 
     defaultConfig {

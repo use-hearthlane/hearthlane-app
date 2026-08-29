@@ -12,6 +12,8 @@ import (
 	"net/http/httptest"
 	"net/netip"
 	urlpkg "net/url"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -59,6 +61,171 @@ func TestStartFailureAllowsRetry(t *testing.T) {
 	}
 	if calls.Load() != 2 {
 		t.Fatalf("startServer called %d times, want 2", calls.Load())
+	}
+}
+
+// lifecycleServer swaps startServer to a no-op "success", letting the lifecycle
+// globals (server/startDone/started) be exercised without a real tailnet. The
+// underlying tsnet.Server is never started, so its Close is a safe no-op.
+func lifecycleServer(t *testing.T) func() {
+	t.Helper()
+	orig := startServer
+	startServer = func(*tsnet.Server) error { return nil }
+	return func() { startServer = orig }
+}
+
+func TestLifecycleStopThenStartCreatesFreshNode(t *testing.T) {
+	defer lifecycleServer(t)()
+	defer Stop()
+
+	dir := t.TempDir()
+	if err := Start("test-host", "", dir); err != nil {
+		t.Fatalf("first Start: %v", err)
+	}
+	if err := Stop(); err != nil {
+		t.Fatalf("first Stop: %v", err)
+	}
+
+	// The second Start must create a fresh node, not fail with "already started":
+	// Stop must have fully reset the global lifecycle.
+	if err := Start("test-host", "", dir); err != nil {
+		t.Fatalf("second Start returned %v; lifecycle not reset after Stop", err)
+	}
+	if err := Stop(); err != nil {
+		t.Fatalf("second Stop: %v", err)
+	}
+}
+
+func TestLifecycleResetIdentityThenStart(t *testing.T) {
+	defer lifecycleServer(t)()
+	defer Stop()
+
+	dir := t.TempDir()
+	if err := Start("test-host", "", dir); err != nil {
+		t.Fatalf("first Start: %v", err)
+	}
+	if err := Stop(); err != nil {
+		t.Fatalf("Stop: %v", err)
+	}
+	// Reset identity: wipe the state dir after Stop (the Kotlin reset() does the
+	// same). A subsequent Start must start cleanly, never SIGABRT.
+	if err := os.RemoveAll(dir); err != nil {
+		t.Fatalf("RemoveAll state dir: %v", err)
+	}
+	if err := Start("test-host", "", dir); err != nil {
+		t.Fatalf("Start after identity reset returned %v", err)
+	}
+	if err := Stop(); err != nil {
+		t.Fatalf("final Stop: %v", err)
+	}
+}
+
+func TestStopIsIdempotentAcrossFullStop(t *testing.T) {
+	defer lifecycleServer(t)()
+	defer Stop()
+
+	dir := t.TempDir()
+	if err := Start("test-host", "", dir); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	if err := Stop(); err != nil {
+		t.Fatalf("first Stop: %v", err)
+	}
+	// A second Stop on an already-stopped node reports a controlled error and
+	// never crashes or touches native state.
+	if err := Stop(); err == nil {
+		t.Fatal("second Stop must report a controlled not-started error")
+	}
+}
+
+// TestLogStateDirRecreatedAcrossResetAndRestart covers the "no safe place found
+// to store log state" panic: the log directory is configured before the node
+// starts, the Kotlin reset removes the identity state but preserves logs/, and a
+// second Start in the same process must recreate a usable log directory (the
+// TS_LOGS_DIR env persists, so Start must not skip recreating the directory).
+func TestLogStateDirRecreatedAcrossResetAndRestart(t *testing.T) {
+	defer lifecycleServer(t)()
+	defer Stop()
+
+	dir := t.TempDir()
+	logsDir := filepath.Join(dir, "logs")
+
+	// First Start: the log dir is created and TS_LOGS_DIR is set before the
+	// node starts.
+	if err := Start("test-host", "", dir); err != nil {
+		t.Fatalf("first Start: %v", err)
+	}
+	if fi, err := os.Stat(logsDir); err != nil || !fi.IsDir() {
+		t.Fatalf("log dir %s not created by first Start: %v", logsDir, err)
+	}
+	if os.Getenv("TS_LOGS_DIR") != logsDir {
+		t.Fatalf("TS_LOGS_DIR = %q, want %q", os.Getenv("TS_LOGS_DIR"), logsDir)
+	}
+
+	if err := Stop(); err != nil {
+		t.Fatalf("Stop: %v", err)
+	}
+
+	// Simulate the Kotlin reset: remove the identity state but preserve logs/.
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatalf("ReadDir: %v", err)
+	}
+	for _, e := range entries {
+		if e.Name() != "logs" {
+			if err := os.RemoveAll(filepath.Join(dir, e.Name())); err != nil {
+				t.Fatalf("remove %s: %v", e.Name(), err)
+			}
+		}
+	}
+
+	// Second Start in the same process: the log dir must exist and be usable
+	// before the node starts, so logpolicy never hits "no safe place".
+	if err := Start("test-host", "", dir); err != nil {
+		t.Fatalf("second Start: %v", err)
+	}
+	if fi, err := os.Stat(logsDir); err != nil || !fi.IsDir() {
+		t.Fatalf("log dir %s not usable after restart: %v", logsDir, err)
+	}
+	if os.Getenv("TS_LOGS_DIR") != logsDir {
+		t.Fatalf("TS_LOGS_DIR after restart = %q, want %q", os.Getenv("TS_LOGS_DIR"), logsDir)
+	}
+	if err := Stop(); err != nil {
+		t.Fatalf("final Stop: %v", err)
+	}
+}
+
+// TestLifecycleStartPanicIsControlled covers the exact crash class observed in
+// "Reconfigure remote access -> Test connection": a panic inside the native
+// tsnet lifecycle must become a controlled Failed state (process survives), not
+// an unrecovered panic that SIGABRTs the runtime.
+func TestLifecycleStartPanicIsControlled(t *testing.T) {
+	orig := startServer
+	startServer = func(*tsnet.Server) error {
+		panic("simulated native tsnet panic")
+	}
+	defer func() { startServer = orig }()
+	defer Stop()
+
+	dir := t.TempDir()
+	if err := Start("test-host", "", dir); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+
+	st := waitForState(t, stateFailed)
+	if st.Error == "" || !strings.Contains(st.Error, "panic") {
+		t.Fatalf("panic must surface as a controlled Failed state, got error=%q", st.Error)
+	}
+	// Stop after the recovered panic must be safe (the globals were cleared).
+	if err := Stop(); err == nil {
+		t.Fatalf("Stop after a recovered panic must report not-started, got nil")
+	}
+	// And a retry Start must be allowed again (the lifecycle is fully reset).
+	if err := Start("test-host", "", dir); err != nil {
+		t.Fatalf("retry Start after recovered panic: %v", err)
+	}
+	if err := Stop(); err != nil {
+		t.Fatalf("final Stop: %v", err)
 	}
 }
 
@@ -161,6 +328,91 @@ func TestHTTPResultFromResponse(t *testing.T) {
 		}
 		if res.FinalURL != srv.URL+"/ok" {
 			t.Fatalf("FinalURL after redirect = %q, want %q", res.FinalURL, srv.URL+"/ok")
+		}
+	})
+}
+
+// TestHTTPEmptyBodyIsNeverNull exercises the full request pipeline
+// (httpRequestInternal with an injected dial to a local server) for responses
+// without content. gomobile maps a Go byte slice with a nil data pointer to
+// Java null, so an empty body used to surface as a null getBody() and NPE on
+// the Kotlin side; the boundary must always yield a non-nil empty Body.
+func TestHTTPEmptyBodyIsNeverNull(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/no-content", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	})
+	mux.HandleFunc("/empty-ok", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	})
+	mux.HandleFunc("/with-body", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte("hello"))
+	})
+	mux.HandleFunc("/error-empty", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	dial := func(ctx context.Context, ip netip.Addr, port int) (net.Conn, error) {
+		return (&net.Dialer{}).DialContext(ctx, "tcp", net.JoinHostPort(ip.String(), strconv.Itoa(port)))
+	}
+	// s is nil: resolveHost only touches the server for hostname lookups, and
+	// the test URL uses a literal IP (127.0.0.1), which passes through.
+	run := func(method, path, body string) (*HttpResult, error) {
+		return httpRequestInternal(method, srv.URL+path, "application/json", "", body, 2000, nil, dial)
+	}
+
+	t.Run("204 has a non-nil empty body", func(t *testing.T) {
+		res, err := run(http.MethodPut, "/no-content", `{}`)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if res.StatusCode != http.StatusNoContent {
+			t.Fatalf("StatusCode = %d, want 204", res.StatusCode)
+		}
+		if res.Body == nil {
+			t.Fatal("Body must never be nil for a 204 response")
+		}
+		if len(res.Body) != 0 {
+			t.Fatalf("Body length = %d, want 0", len(res.Body))
+		}
+	})
+
+	t.Run("200 with empty body has a non-nil empty body", func(t *testing.T) {
+		res, err := run(http.MethodPut, "/empty-ok", `{}`)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if res.StatusCode != http.StatusOK {
+			t.Fatalf("StatusCode = %d, want 200", res.StatusCode)
+		}
+		if res.Body == nil || len(res.Body) != 0 {
+			t.Fatalf("Body = %v, want non-nil empty", res.Body)
+		}
+	})
+
+	t.Run("200 with body preserves the content", func(t *testing.T) {
+		res, err := run(http.MethodGet, "/with-body", "")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if string(res.Body) != "hello" {
+			t.Fatalf("Body = %q, want %q", string(res.Body), "hello")
+		}
+	})
+
+	t.Run("error status with empty body preserves status and non-nil body", func(t *testing.T) {
+		res, err := run(http.MethodPut, "/error-empty", `{}`)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if res.StatusCode != http.StatusInternalServerError {
+			t.Fatalf("StatusCode = %d, want 500", res.StatusCode)
+		}
+		if res.Body == nil || len(res.Body) != 0 {
+			t.Fatalf("Body = %v, want non-nil empty", res.Body)
 		}
 	})
 }
@@ -810,12 +1062,12 @@ func TestOpenHttpStreamPreservesMetadataWithoutReadingBody(t *testing.T) {
 	}
 
 	// The body must not have been consumed by Open: the first read returns it.
-	chunk, err := ReadChunk(info.Id, 1024)
+	res, err := ReadChunk(info.Id, 1024)
 	if err != nil {
 		t.Fatalf("first ReadChunk: %v", err)
 	}
-	if string(chunk) != "moov" {
-		t.Fatalf("first chunk = %q, want %q", chunk, "moov")
+	if string(res.Data) != "moov" {
+		t.Fatalf("first chunk = %q, want %q", res.Data, "moov")
 	}
 }
 
@@ -839,18 +1091,18 @@ func TestStreamReadChunksAndEOF(t *testing.T) {
 	var total []byte
 	var reads int
 	for {
-		chunk, err := ReadChunk(info.Id, 2048)
+		res, err := ReadChunk(info.Id, 2048)
 		if err != nil {
 			t.Fatalf("ReadChunk: %v", err)
 		}
-		if len(chunk) == 0 {
+		if res.EOF {
 			break // EOF
 		}
-		if len(chunk) > 2048 {
-			t.Fatalf("chunk of %d bytes exceeds the requested max", len(chunk))
+		if len(res.Data) > 2048 {
+			t.Fatalf("chunk of %d bytes exceeds the requested max", len(res.Data))
 		}
 		reads++
-		total = append(total, chunk...)
+		total = append(total, res.Data...)
 	}
 	want := chunks * chunkSize
 	if len(total) != want {
@@ -873,19 +1125,79 @@ func TestStreamChunkSmallerThanRequested(t *testing.T) {
 	info := openTestStream(t, srv.URL+"/tiny")
 	defer CloseStream(info.Id)
 
-	chunk, err := ReadChunk(info.Id, 4096)
+	res, err := ReadChunk(info.Id, 4096)
 	if err != nil {
 		t.Fatalf("ReadChunk: %v", err)
 	}
-	if string(chunk) != "abcde" {
-		t.Fatalf("chunk = %q, want abcde", chunk)
+	if string(res.Data) != "abcde" {
+		t.Fatalf("chunk = %q, want abcde", res.Data)
 	}
-	chunk, err = ReadChunk(info.Id, 4096)
+	res, err = ReadChunk(info.Id, 4096)
 	if err != nil {
 		t.Fatalf("ReadChunk after EOF: %v", err)
 	}
-	if len(chunk) != 0 {
-		t.Fatalf("expected EOF (empty chunk), got %q", chunk)
+	if !res.EOF {
+		t.Fatalf("expected EOF after the final bytes, got %q", res.Data)
+	}
+	if len(res.Data) != 0 {
+		t.Fatalf("expected an empty EOF read, got %q", res.Data)
+	}
+}
+
+// TestReadChunkDeliversFinalBytesWithEOF exercises the Go io.Reader edge case
+// where a reader delivers the FINAL bytes together with io.EOF in a single
+// read (n > 0, err == io.EOF): a response without Content-Length and without
+// chunked framing (Connection: close) makes net/http return the remaining
+// bytes plus io.EOF on the last read. ReadChunk must deliver those bytes and
+// only report EOF on the following read — never surface the trailing io.EOF
+// as an error across the gomobile boundary.
+func TestReadChunkDeliversFinalBytesWithEOF(t *testing.T) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen: %v", err)
+	}
+	defer ln.Close()
+
+	body := bytes.Repeat([]byte{0x5A}, 70_000)
+	serverDone := make(chan struct{})
+	go func() {
+		defer close(serverDone)
+		conn, err := ln.Accept()
+		if err != nil {
+			return
+		}
+		defer conn.Close()
+		head := make([]byte, 2048)
+		conn.Read(head) // request head
+		conn.Write([]byte("HTTP/1.1 200 OK\r\nConnection: close\r\n\r\n"))
+		conn.Write(body)
+		// Close WITHOUT Content-Length, chunked framing or a terminator: the
+		// client reader must treat the clean close as the end of the body.
+	}()
+
+	dial := func(ctx context.Context, ip netip.Addr, port int) (net.Conn, error) {
+		return net.Dial("tcp", ln.Addr().String())
+	}
+	info, err := openHttpStream("http://127.0.0.1:1/clip", 2000, nil, dial)
+	if err != nil {
+		t.Fatalf("openHttpStream: %v", err)
+	}
+	defer CloseStream(info.Id)
+
+	var total []byte
+	for {
+		res, err := ReadChunk(info.Id, 32*1024)
+		if err != nil {
+			t.Fatalf("ReadChunk: %v", err)
+		}
+		if res.EOF {
+			break // EOF
+		}
+		total = append(total, res.Data...)
+	}
+	<-serverDone
+	if !bytes.Equal(total, body) {
+		t.Fatalf("received %d bytes, want %d; final bytes must be delivered", len(total), len(body))
 	}
 }
 
@@ -911,18 +1223,18 @@ func TestStreamReadsLargeBodyIncrementally(t *testing.T) {
 	var total int
 	seen := map[int]bool{}
 	for {
-		chunk, err := ReadChunk(info.Id, maxChunk)
+		res, err := ReadChunk(info.Id, maxChunk)
 		if err != nil {
 			t.Fatalf("ReadChunk: %v", err)
 		}
-		if len(chunk) == 0 {
+		if res.EOF {
 			break
 		}
-		if len(chunk) > maxChunk {
-			t.Fatalf("chunk of %d bytes exceeds the requested max", len(chunk))
+		if len(res.Data) > maxChunk {
+			t.Fatalf("chunk of %d bytes exceeds the requested max", len(res.Data))
 		}
-		seen[len(chunk)] = true
-		total += len(chunk)
+		seen[len(res.Data)] = true
+		total += len(res.Data)
 	}
 	if total != bodySize {
 		t.Fatalf("total bytes = %d, want %d", total, bodySize)
@@ -1039,9 +1351,9 @@ func TestStreamCloseUnblocksPendingRead(t *testing.T) {
 	defer func() { close(release) }()
 
 	info := openTestStream(t, srv.URL+"/block")
-	first, err := ReadChunk(info.Id, 1024)
-	if err != nil || string(first) != "first" {
-		t.Fatalf("first chunk = %q, err = %v", first, err)
+	res, err := ReadChunk(info.Id, 1024)
+	if err != nil || string(res.Data) != "first" {
+		t.Fatalf("first chunk = %q, err = %v", res.Data, err)
 	}
 
 	done := make(chan error, 1)
@@ -1083,20 +1395,20 @@ func TestStreamConcurrentReadsAreSerialized(t *testing.T) {
 		go func() {
 			defer wg.Done()
 			for {
-				chunk, err := ReadChunk(info.Id, 4096)
+				res, err := ReadChunk(info.Id, 4096)
 				if err != nil {
 					return // stream closed concurrently is out of scope here
 				}
-				if len(chunk) == 0 {
+				if res.EOF {
 					return
 				}
-				for _, b := range chunk {
+				for _, b := range res.Data {
 					if b != 0x42 {
 						t.Error("corrupted byte in concurrent read")
 						return
 					}
 				}
-				total.Add(int64(len(chunk)))
+				total.Add(int64(len(res.Data)))
 			}
 		}()
 	}

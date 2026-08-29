@@ -6,16 +6,15 @@ frozen.
 
 ## Application identity
 
-- **Application ID:** `com.homelab.hearthlane`
-- **Namespace (internal source package):** `com.homelab.poc` (kept to avoid a
-  large source refactor; not user-visible)
+- **Application ID:** `org.hearthlane`
+- **Namespace (internal source package):** `org.hearthlane`
 - **App name:** `Hearthlane`
 - **Tagline:** Your private way home.
 - **Initial release:** `versionName = "1.0.0"`, `versionCode = 1`
 
-`com.homelab` should be replaced with the real domain under the publisher's
-control before the first public listing. Changing applicationId after a release
-is treated by Android as a new app, so pick the definitive value now.
+The applicationId is the definitive value under the project's own domain.
+Changing applicationId after a release is treated by Android as a new app, so
+it must not change again after the first public listing.
 
 ## Versioning policy
 
@@ -209,7 +208,7 @@ Reviewed items for V1:
 Create or use a Google Play developer account, then create the app.
 
 - [ ] Google Play Developer account active and paid
-- [ ] App created in Play Console with application ID `com.homelab.hearthlane`
+- [ ] App created in Play Console with application ID `org.hearthlane`
 - [ ] Google Play App Signing enabled
 - [ ] Upload key (local keystore) registered with Play Console
 - [ ] First internal testing release uploaded (AAB)

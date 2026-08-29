@@ -8,7 +8,7 @@ plugins {
 // target camera configuration, live-stream metadata). No Frigate event APIs
 // during the POC.
 android {
-    namespace = "com.homelab.poc.core.frigate"
+    namespace = "org.hearthlane.core.frigate"
     compileSdk = libs.versions.compileSdk.get().toInt()
 
     defaultConfig {

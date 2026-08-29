@@ -3,10 +3,6 @@
     <!-- App / general (Portuguese, Brazil) -->
     <string name="app_name">Hearthlane</string>
     <string name="settings_loading">Carregando configurações…</string>
-    <string name="frigate_url_label">URL do Frigate (funciona no Wi-Fi e no Tailscale)</string>
-    <string name="transport_local">LOCAL</string>
-    <string name="transport_tailscale">TAILSCALE</string>
-    <string name="frigate_version_value">Versão do Frigate: %1$s</string>
     <string name="auth_url_hint">Este dispositivo precisa de cadastro. Abra esta URL em um navegador conectado ao administrador da tailnet:</string>
     <string name="auth_url_pending_hint">A URL de cadastro ainda não está disponível. Aguarde um momento e toque em Tentar novamente.</string>
     <string name="open_auth_url_button">Abrir URL de login</string>
@@ -17,21 +13,36 @@
     <string name="live_view_discovering">Conectando à câmera…</string>
     <string name="live_view_camera_unavailable">Câmera indisponível</string>
     <string name="live_view_connection_lost">Conexão perdida</string>
-    <string name="live_view_starting">Iniciando reprodução ao vivo…</string>
-    <string name="live_view_playing">Reproduzindo</string>
-    <string name="live_view_play">Reproduzir</string>
-    <string name="live_view_stop">Parar</string>
     <string name="enter_fullscreen">Entrar em tela cheia</string>
     <string name="exit_fullscreen">Sair da tela cheia</string>
+    <string name="event_view_detail">Ver evento</string>
 
     <!-- Setup (administrator-facing) -->
     <string name="setup_title">Configuração inicial</string>
     <string name="settings_title">Configurações do servidor</string>
-    <string name="setup_subtitle">Configuração única do administrador. Informe o endereço do servidor de câmeras da sua casa.</string>
-    <string name="setup_url_label">Endereço do servidor Frigate</string>
-    <string name="setup_enter_config">Informe o endereço do servidor e teste a conexão.</string>
+    <string name="setup_subtitle">Configuração única do administrador. Informe o domínio do seu servidor Hearthlane, por exemplo hearthlane.omni.corp.</string>
+    <string name="setup_url_label">Domínio do servidor Hearthlane</string>
+    <string name="setup_domain_label">hearthlane.omni.corp</string>
+    <string name="setup_domain_hint">Seu servidor Hearthlane, por exemplo hearthlane.omni.corp</string>
+    <string name="setup_device_nickname_label">Nome deste dispositivo</string>
+    <string name="setup_device_nickname_field">Meu celular</string>
+    <string name="setup_device_nickname_hint">Mostrado para sua família no mapa</string>
+    <string name="setup_device_nickname_optional">Opcional</string>
+    <string name="setup_location_title">Compartilhamento de localização</string>
+    <string name="setup_location_intro">O compartilhamento de localização está ativado por padrão. Sua família pode ver este dispositivo no mapa privado, e você pode desativá-lo quando quiser nas Configurações.</string>
+    <string name="setup_location_needs_foreground">O Hearthlane precisa da permissão de localização para compartilhar a localização deste dispositivo.</string>
+    <string name="setup_location_needs_background">Permita o acesso à localização o tempo todo para que o compartilhamento continue funcionando mesmo quando o aplicativo estiver fechado.</string>
+    <string name="setup_location_services_off">A localização do dispositivo está desligada. Ative-a para compartilhar.</string>
+    <string name="setup_location_active">O compartilhamento de localização está ativo.</string>
+    <string name="setup_location_limited">O compartilhamento de localização está limitado. Você pode ativá-lo depois nas Configurações.</string>
+    <string name="setup_location_continue">Continuar</string>
+    <string name="setup_location_open_settings">Abrir configurações de localização</string>
+    <string name="setup_location_skip">Continuar sem compartilhar</string>
+    <string name="setup_enter_config">Informe o domínio do seu servidor Hearthlane e teste a conexão.</string>
     <string name="setup_testing">Testando conexão…</string>
     <string name="setup_connected">Conectado. Você pode salvar e continuar.</string>
+    <string name="setup_connected_domain">Servidor: %1$s</string>
+    <string name="setup_invalid_domain">Isso não parece um domínio de servidor válido. Tente novamente.</string>
     <string name="setup_enrollment_hint">Este dispositivo precisa ser cadastrado antes de acessar seu servidor.</string>
     <string name="setup_failed">Falha na conexão. Verifique o endereço e tente novamente.</string>
     <string name="setup_test_button">Testar conexão</string>
@@ -64,6 +75,48 @@
     <string name="settings_section_playback">Reprodução</string>
     <string name="settings_autoplay_event_clips">Reproduzir clipes automaticamente</string>
 
+    <string name="settings_section_location">Localização</string>
+    <string name="settings_location_sharing">Compartilhar minha localização com a família</string>
+    <string name="settings_location_sharing_body">Sua localização atual é mostrada em particular para as pessoas em quem você confia.</string>
+    <string name="settings_location_status_permission">A permissão de localização é necessária para compartilhar.</string>
+    <string name="settings_location_status_background">O compartilhamento contínuo está desativado. Permita o acesso à localização o tempo todo para que o compartilhamento continue funcionando quando o aplicativo estiver fechado.</string>
+    <string name="settings_location_status_location_off">A localização do dispositivo está desligada. Ative-a para compartilhar.</string>
+    <string name="settings_location_status_error">Não foi possível iniciar o compartilhamento. Tente novamente.</string>
+    <string name="settings_location_action_grant">Conceder permissão</string>
+    <string name="settings_location_action_continuous">Permitir o tempo todo</string>
+    <string name="settings_location_action_location_settings">Abrir configurações de localização</string>
+    <string name="settings_location_action_retry">Tentar novamente</string>
+    <string name="settings_location_background_title">Permitir localização em segundo plano</string>
+    <string name="settings_location_background_body">Para que sua família possa encontrar este dispositivo mesmo quando o Hearthlane estiver fechado, permita o acesso à localização o tempo todo. Na próxima tela, abra: Permissões → Localização → Permitir o tempo todo.</string>
+    <string name="settings_location_background_continue">Continuar</string>
+
+    <!-- Location sharing (family-facing) -->
+    <string name="location_service_channel_name">Compartilhamento de localização</string>
+    <string name="location_service_notification_title">Compartilhando sua localização</string>
+    <string name="location_service_notification_text">Mantendo sua família atualizada</string>
+
+    <!-- Locations (family-facing) -->
+    <string name="locations_title">Localizações</string>
+    <string name="locations_connecting">Conectando…</string>
+    <string name="locations_empty">Nenhuma localização disponível ainda.</string>
+    <string name="locations_error">Não foi possível carregar as localizações.</string>
+    <string name="locations_connection_error">Não foi possível acessar o servidor.</string>
+    <string name="locations_never_shared">Nenhuma localização compartilhada ainda</string>
+    <string name="locations_updated_at">Atualizado %1$s</string>
+    <string name="locations_just_now">agora mesmo</string>
+    <string name="locations_minutes_ago">há %1$d min</string>
+    <string name="locations_status_stale">antigo</string>
+    <string name="locations_status_offline">offline</string>
+    <string name="locations_last_location_ago">Última localização %1$s</string>
+    <string name="locations_location_unavailable">Localização indisponível</string>
+    <string name="locations_precision_label">Precisão</string>
+    <string name="locations_coordinates_label">Localização</string>
+    <string name="locations_accuracy_unavailable">Indisponível</string>
+    <string name="locations_copy_location">Copiar localização</string>
+    <string name="locations_center">Centralizar</string>
+    <string name="locations_copied">Localização copiada</string>
+    <string name="locations_no_location">Nenhuma localização disponível</string>
+
     <!-- Diagnostics (administrator-facing) -->
     <string name="diagnostics_title">Diagnóstico</string>
     <string name="diagnostics_copy_button">Copiar diagnóstico</string>
@@ -71,10 +124,10 @@
     <string name="diagnostics_retry_connection">Tentar conexão novamente</string>
 
     <!-- Home screen (family-facing) -->
-    <string name="home_title">Câmeras</string>
-    <string name="home_connecting">Conectando…</string>
+    <string name="home_title">Hearthlane</string>
+    <string name="home_section_cameras">Câmeras</string>
+    <string name="home_locations_tagline">Veja sua família no mapa privado</string>
     <string name="home_connecting_body">Procurando suas câmeras…</string>
-    <string name="home_live">Ao vivo</string>
     <string name="home_try_again">Tentar novamente</string>
     <string name="home_loading_cameras">Carregando câmeras…</string>
     <string name="home_no_cameras">Nenhuma câmera configurada.</string>
@@ -102,21 +155,20 @@
     <string name="load_more_error">Não foi possível carregar mais eventos.</string>
     <string name="event_in_progress">Em andamento</string>
     <string name="event_no_label">Atividade</string>
-    <string name="event_playback_available">Reprodução disponível</string>
+    <string name="events_today">Hoje</string>
+    <string name="events_yesterday">Ontem</string>
+    <string name="event_day_format">"d 'de' MMMM"</string>
 
     <!-- Event detail (family-facing) -->
     <string name="event_detail_title">Evento</string>
     <string name="event_detail_loading">Carregando evento…</string>
     <string name="event_detail_not_found">Este evento não está mais disponível.</string>
     <string name="event_detail_error">Não foi possível carregar este evento.</string>
-    <string name="event_detail_time">Horário</string>
-    <string name="event_detail_duration">Duração</string>
-    <string name="event_detail_zones">Zonas</string>
     <string name="event_detail_play_clip">Reproduzir evento</string>
 
     <!-- Event date/time formats (Portuguese, Brazil) -->
-    <string name="event_time_format">"d 'de' MMM, HH:mm"</string>
-    <string name="event_datetime_format">"d 'de' MMM 'de' yyyy, HH:mm:ss"</string>
+    <string name="event_time_format">HH:mm</string>
+    <string name="event_datetime_format">"d 'de' MMMM 'de' yyyy · HH:mm"</string>
 
     <!-- Event playback (family-facing) -->
     <string name="event_playback_not_found">Este evento não está mais disponível.</string>

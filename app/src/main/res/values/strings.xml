@@ -2,10 +2,6 @@
 <resources>
     <string name="app_name">Hearthlane</string>
     <string name="settings_loading">Loading settings…</string>
-    <string name="frigate_url_label">Frigate URL (works on Wi-Fi and Tailscale)</string>
-    <string name="transport_local">LOCAL</string>
-    <string name="transport_tailscale">TAILSCALE</string>
-    <string name="frigate_version_value">Frigate version: %1$s</string>
     <string name="auth_url_hint">This device needs enrollment. Open this URL in a browser while signed in to the tailnet admin:</string>
     <string name="auth_url_pending_hint">The enrollment URL is not available yet. Wait a moment and tap Retry.</string>
     <string name="open_auth_url_button">Open login URL</string>
@@ -15,20 +11,35 @@
     <string name="live_view_discovering">Connecting to camera…</string>
     <string name="live_view_camera_unavailable">Camera unavailable</string>
     <string name="live_view_connection_lost">Connection lost</string>
-    <string name="live_view_starting">Starting live playback…</string>
-    <string name="live_view_playing">Playing</string>
-    <string name="live_view_play">Play</string>
-    <string name="live_view_stop">Stop</string>
     <string name="enter_fullscreen">Enter fullscreen</string>
     <string name="exit_fullscreen">Exit fullscreen</string>
+    <string name="event_view_detail">View event</string>
 
     <string name="setup_title">Initial setup</string>
     <string name="settings_title">Server settings</string>
-    <string name="setup_subtitle">One-time administrator setup. Enter the address of your home camera server.</string>
-    <string name="setup_url_label">Frigate server address</string>
-    <string name="setup_enter_config">Enter the server address and test the connection.</string>
+    <string name="setup_subtitle">One-time administrator setup. Enter your Hearthlane server domain, for example hearthlane.omni.corp.</string>
+    <string name="setup_url_label">Hearthlane server domain</string>
+    <string name="setup_domain_label">hearthlane.omni.corp</string>
+    <string name="setup_domain_hint">Your Hearthlane server, for example hearthlane.omni.corp</string>
+    <string name="setup_device_nickname_label">Name this device</string>
+    <string name="setup_device_nickname_field">My phone</string>
+    <string name="setup_device_nickname_hint">Shown to your family on the map</string>
+    <string name="setup_device_nickname_optional">Optional</string>
+    <string name="setup_location_title">Location sharing</string>
+    <string name="setup_location_intro">Location sharing is on by default. Your family can see this device on the private map, and you can turn it off anytime in Settings.</string>
+    <string name="setup_location_needs_foreground">Hearthlane needs location permission to share this device\'s location.</string>
+    <string name="setup_location_needs_background">Allow location access all the time so sharing keeps working even when the app is closed.</string>
+    <string name="setup_location_services_off">Device location is off. Turn it on to share.</string>
+    <string name="setup_location_active">Location sharing is active.</string>
+    <string name="setup_location_limited">Location sharing is limited. You can enable it later in Settings.</string>
+    <string name="setup_location_continue">Continue</string>
+    <string name="setup_location_open_settings">Open location settings</string>
+    <string name="setup_location_skip">Continue without sharing</string>
+    <string name="setup_enter_config">Enter your Hearthlane server domain and test the connection.</string>
     <string name="setup_testing">Testing connection…</string>
     <string name="setup_connected">Connected. You can save and continue.</string>
+    <string name="setup_connected_domain">Server: %1$s</string>
+    <string name="setup_invalid_domain">That doesn\'t look like a valid server domain. Try again.</string>
     <string name="setup_enrollment_hint">This device needs to be enrolled before it can reach your home server.</string>
     <string name="setup_failed">Connection failed. Check the address and try again.</string>
     <string name="setup_test_button">Test connection</string>
@@ -61,6 +72,48 @@
     <string name="settings_section_playback">Playback</string>
     <string name="settings_autoplay_event_clips">Play event clips automatically</string>
 
+    <string name="settings_section_location">Location</string>
+    <string name="settings_location_sharing">Share my location with family</string>
+    <string name="settings_location_sharing_body">Your current location is shown privately to the people you trust.</string>
+    <string name="settings_location_status_permission">Location permission is needed for sharing.</string>
+    <string name="settings_location_status_background">Continuous sharing is off. Allow location all the time so sharing keeps working when the app is closed.</string>
+    <string name="settings_location_status_location_off">Device location is off. Turn it on to share.</string>
+    <string name="settings_location_status_error">Sharing couldn\'t start. Try again.</string>
+    <string name="settings_location_action_grant">Grant permission</string>
+    <string name="settings_location_action_continuous">Allow all the time</string>
+    <string name="settings_location_action_location_settings">Open location settings</string>
+    <string name="settings_location_action_retry">Try again</string>
+    <string name="settings_location_background_title">Allow background location</string>
+    <string name="settings_location_background_body">So your family can find this device even when Hearthlane is closed, allow location access all the time. On the next screen, open: Permissions → Location → Allow all the time.</string>
+    <string name="settings_location_background_continue">Continue</string>
+
+    <!-- Location sharing (family-facing) -->
+    <string name="location_service_channel_name">Location sharing</string>
+    <string name="location_service_notification_title">Sharing your location</string>
+    <string name="location_service_notification_text">Keeping your family updated</string>
+
+    <!-- Locations (family-facing) -->
+    <string name="locations_title">Locations</string>
+    <string name="locations_connecting">Connecting…</string>
+    <string name="locations_empty">No locations available yet.</string>
+    <string name="locations_error">Could not load locations.</string>
+    <string name="locations_connection_error">Could not reach the server.</string>
+    <string name="locations_never_shared">No location shared yet</string>
+    <string name="locations_updated_at">Updated %1$s</string>
+    <string name="locations_just_now">just now</string>
+    <string name="locations_minutes_ago">%1$d min ago</string>
+    <string name="locations_status_stale">stale</string>
+    <string name="locations_status_offline">offline</string>
+    <string name="locations_last_location_ago">Last location %1$s</string>
+    <string name="locations_location_unavailable">Location unavailable</string>
+    <string name="locations_precision_label">Precision</string>
+    <string name="locations_coordinates_label">Location</string>
+    <string name="locations_accuracy_unavailable">Unavailable</string>
+    <string name="locations_copy_location">Copy location</string>
+    <string name="locations_center">Center</string>
+    <string name="locations_copied">Location copied</string>
+    <string name="locations_no_location">No location available</string>
+
     <!-- Diagnostics (V1.5, administrator-facing) -->
     <string name="diagnostics_title">Diagnostics</string>
     <string name="diagnostics_copy_button">Copy diagnostics</string>
@@ -68,10 +121,10 @@
     <string name="diagnostics_retry_connection">Retry connection</string>
 
     <!-- Home screen (family-facing) -->
-    <string name="home_title">Cameras</string>
-    <string name="home_connecting">Connecting…</string>
+    <string name="home_title">Hearthlane</string>
+    <string name="home_section_cameras">Cameras</string>
+    <string name="home_locations_tagline">See your family on the private map</string>
     <string name="home_connecting_body">Looking for your cameras…</string>
-    <string name="home_live">Live</string>
     <string name="home_try_again">Try again</string>
     <string name="home_loading_cameras">Loading cameras…</string>
     <string name="home_no_cameras">No cameras configured.</string>
@@ -99,21 +152,20 @@
     <string name="load_more_error">Could not load more events.</string>
     <string name="event_in_progress">In progress</string>
     <string name="event_no_label">Activity</string>
-    <string name="event_playback_available">Playback available</string>
+    <string name="events_today">Today</string>
+    <string name="events_yesterday">Yesterday</string>
+    <string name="event_day_format">MMMM d</string>
 
     <!-- Event detail (family-facing) -->
     <string name="event_detail_title">Event</string>
     <string name="event_detail_loading">Loading event…</string>
     <string name="event_detail_not_found">This event is no longer available.</string>
     <string name="event_detail_error">Could not load this event.</string>
-    <string name="event_detail_time">Time</string>
-    <string name="event_detail_duration">Duration</string>
-    <string name="event_detail_zones">Zones</string>
     <string name="event_detail_play_clip">Play event</string>
 
     <!-- Event date/time formats (family-facing, localized) -->
-    <string name="event_time_format">MMM d, HH:mm</string>
-    <string name="event_datetime_format">MMM d, yyyy HH:mm:ss</string>
+    <string name="event_time_format">HH:mm</string>
+    <string name="event_datetime_format">MMM d, yyyy · HH:mm</string>
 
     <!-- Event playback (family-facing) -->
     <string name="event_playback_not_found">This event is no longer available.</string>

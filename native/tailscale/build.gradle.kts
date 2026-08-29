@@ -10,7 +10,7 @@ plugins {
 // Note: the module path is `native/tailscale`; the namespace cannot use
 // `native` because it is a Java keyword.
 android {
-    namespace = "com.homelab.poc.tailscale"
+    namespace = "org.hearthlane.tailscale"
     compileSdk = libs.versions.compileSdk.get().toInt()
 
     defaultConfig {
@@ -103,5 +103,9 @@ dependencies {
     implementation(project(":core:connectivity"))
     implementation(project(":core:frigate"))
     implementation(libs.kotlinx.coroutines.core)
-    implementation(files(goClassesJar) { builtBy(extractGoAar) })
+    // api (not implementation): the generated gomobile binding classes
+    // (org.hearthlane.tsembed.*) are part of this module's public surface;
+    // the app compiles against them directly (see the 9.2 spike endpoint).
+    api(files(goClassesJar) { builtBy(extractGoAar) })
+    testImplementation(libs.junit)
 }
