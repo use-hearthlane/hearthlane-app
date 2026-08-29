@@ -20,8 +20,8 @@ android {
         applicationId = "org.hearthlane"
         minSdk = libs.versions.minSdk.get().toInt()
         targetSdk = libs.versions.targetSdk.get().toInt()
-        versionCode = 4
-        versionName = "1.2.0"
+        versionCode = 5
+        versionName = "0.1.0"
 
         buildConfigField("String", "HEARTHLANE_BASE_DOMAIN", "\"$hearthlaneBaseDomain\"")
     }
