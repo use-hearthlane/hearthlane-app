@@ -193,6 +193,10 @@ Before releases, preserve the procedures documented in `docs/RELEASE.md`, includ
 
 Never commit signing credentials, keystores, tokens, private keys, local editor configuration changes, or other secrets.
 
+### Release notes and public artifacts
+
+Always write release notes in English, like every other artifact created for the project. This applies to GitHub Releases, changelogs, announcements, and any public-facing text: never produce release notes in another language. If release notes are drafted in a conversation language first, translate them to English before publishing.
+
 ## Historical Documents
 
 `docs/PLAN.md` contains historical Decision Log entries.
